@@ -106,7 +106,10 @@ async function createInShelfarr(b: RequestInfo & { coverUrl?: string | null; yea
       author: b.author ?? undefined,
       cover_url: b.coverUrl ?? undefined,
       year: b.year ?? undefined,
-      language: b.language ?? undefined,
+      // English is left unset, as before the language picker existed: Shelfarr then uses its own
+      // default, which may filter less (an explicit language also filters Z-Library/Anna's Archive
+      // by their language tag, and self-published books are often untagged).
+      language: b.language && b.language !== 'en' ? b.language : undefined,
       external_user_id: String(userId),
     });
   } catch (err) {
