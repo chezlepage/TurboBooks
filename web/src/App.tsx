@@ -6,6 +6,7 @@ import { MiniPlayer } from './components/MiniPlayer';
 import { Toaster } from './components/Toast';
 import { BookPage } from './pages/BookPage';
 import { Discover } from './pages/Discover';
+import { KindleSetup } from './pages/KindleSetup';
 import { Request } from './pages/Request';
 import { Library } from './pages/Library';
 import { Login } from './pages/Login';
@@ -51,6 +52,7 @@ function Shell() {
           <Route path="/discover" element={<Discover />} />
           <Route path="/request" element={<Request />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/kindle" element={<KindleSetup />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/profile/:id" element={<Profile />} />
           <Route path="*" element={<Navigate to="/" replace />} />

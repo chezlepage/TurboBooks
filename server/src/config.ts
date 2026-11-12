@@ -39,6 +39,13 @@ export const config = {
   shelfarrToken: env.SHELFARR_TOKEN ?? '',
   /** Minutes between automatic library rescans. 0 disables. */
   scanIntervalMinutes: Number(env.SCAN_INTERVAL_MINUTES ?? 30),
+  /** Outgoing email, used for Send to Kindle. Unset SMTP_HOST disables the feature. */
+  smtpHost: env.SMTP_HOST ?? '',
+  smtpPort: Number(env.SMTP_PORT ?? 587),
+  smtpUser: env.SMTP_USER ?? '',
+  smtpPass: env.SMTP_PASS ?? '',
+  /** The address Kindle users add to Amazon's approved sender list. Defaults to SMTP_USER. */
+  smtpFrom: env.SMTP_FROM || env.SMTP_USER || '',
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });

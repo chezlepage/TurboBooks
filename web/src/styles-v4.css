@@ -680,3 +680,93 @@ h1 {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   }
 }
+
+/* ---------- Send to Kindle setup ---------- */
+.setup-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.setup-step h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.1rem;
+}
+.step-num {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.setup-step.done .step-num {
+  background: var(--success);
+}
+.setup-step p,
+.kindle-page .tips {
+  margin: 0;
+  line-height: 1.5;
+}
+.how-to summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0.25rem 0;
+}
+.how-to[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+}
+.sub-steps,
+.kindle-page .tips {
+  padding-left: 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  line-height: 1.5;
+}
+.copy-box {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.6rem 0.6rem 0.9rem;
+  border: 1px dashed var(--accent-dim);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+}
+.copy-box code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  color: var(--text);
+  user-select: all;
+}
+.row-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.saved-line {
+  overflow-wrap: anywhere;
+}
+.book-actions {
+  flex-wrap: wrap;
+}
+/* Phones: Send to Kindle gets its own row under Read + the menu. */
+@media (max-width: 560px) {
+  .book-actions .btn-kindle {
+    order: 3;
+    flex-basis: 100%;
+  }
+}

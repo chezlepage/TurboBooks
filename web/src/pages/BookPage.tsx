@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, coverUrl, formatDuration, formatTime } from '../api';
-import type { BookDetail } from '../api';
+import type { BookDetail, KindleSettings } from '../api';
 import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
 import { BooksIcon, ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/Icons';
@@ -26,6 +26,8 @@ export function BookPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAllText, setShowAllText] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [kindle, setKindle] = useState<KindleSettings | null>(null);
+  const [sendingToKindle, setSendingToKindle] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [prefs] = usePrefs();
 
@@ -39,6 +41,10 @@ export function BookPage() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
+
+  useEffect(() => {
+    api.kindle().then(setKindle, () => undefined);
+  }, []);
 
   // Close the "more" menu on outside click.
   useEffect(() => {
@@ -99,6 +105,20 @@ export function BookPage() {
     await api.deleteBook(book.id);
     toast('Book deleted');
     navigate('/');
+  };
+
+  const sendToKindle = async () => {
+    // Not set up yet: the guided setup can send this book at the end.
+    if (!kindle?.email) return navigate(`/kindle?book=${book.id}`);
+    setSendingToKindle(true);
+    try {
+      await api.sendToKindle(book.id);
+      toast('Sent! It should appear on your Kindle in a few minutes.');
+    } catch (err) {
+      toast((err as Error).message);
+    } finally {
+      setSendingToKindle(false);
+    }
   };
 
   const chips = [
@@ -166,6 +186,12 @@ export function BookPage() {
             ) : (
               <button className="btn btn-primary btn-lg" onClick={() => playFrom()}>
                 <PlayIcon size={20} /> {started ? `Resume at ${formatTime(position)}` : finished ? 'Listen again' : 'Play'}
+              </button>
+            )}
+
+            {isEbook && kindle?.enabled && (
+              <button className="btn btn-lg btn-kindle" onClick={sendToKindle} disabled={sendingToKindle}>
+                {sendingToKindle ? 'Sending…' : 'Send to Kindle'}
               </button>
             )}
 

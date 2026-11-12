@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
-import type { AdminUser } from '../api';
+import type { AdminUser, KindleSettings } from '../api';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { ChevronLeftIcon } from '../components/Icons';
@@ -21,6 +21,7 @@ export function Settings() {
         {user?.isAdmin && ' (admin)'}
       </p>
       <Bedtime />
+      <Kindle />
       <ChangePassword />
       {user?.isAdmin && <AdminPanel />}
       <button className="btn btn-ghost btn-block" onClick={() => void logout()}>
@@ -67,6 +68,29 @@ function Bedtime() {
           Only at night (8 pm – 6 am)
         </label>
       )}
+    </div>
+  );
+}
+
+function Kindle() {
+  const [kindle, setKindle] = useState<KindleSettings | null>(null);
+  useEffect(() => {
+    api.kindle().then(setKindle, () => undefined);
+  }, []);
+  if (!kindle) return null;
+  return (
+    <div className="card">
+      <h2>Kindle</h2>
+      <p className="muted small">
+        {!kindle.enabled
+          ? "Sending ebooks to a Kindle isn't turned on for this server yet."
+          : kindle.email
+            ? `Ebooks are sent to ${kindle.email}.`
+            : 'Send ebooks from TurboBooks straight to your Kindle. One-time setup, about 5 minutes.'}
+      </p>
+      <Link className="btn" to="/kindle">
+        {kindle.enabled && kindle.email ? 'Kindle settings & help' : 'Set up Send to Kindle'}
+      </Link>
     </div>
   );
 }

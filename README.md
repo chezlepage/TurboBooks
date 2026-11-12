@@ -6,6 +6,7 @@ Self-hosted audiobook player and ebook reader built for falling asleep. Two (or 
 
 - **Discover**: browse shelves (Bedtime & children, Under 90 min, Mystery, Sci-fi…) or search the LibriVox collection on the Internet Archive, most popular version first, and add books with one tap. The server downloads them in the background.
 - **Ebooks**: EPUB reader with dark / black / dim-sepia themes, font size, table of contents, tap or swipe to turn pages. Discover → Ebooks adds free books from Project Gutenberg.
+- **Send to Kindle**: one tap emails an ebook to your Kindle. Guided in-app setup for readers; the admin adds an email account once ([docs/KINDLE.md](docs/KINDLE.md)).
 - **Bring your own files**: drop MP3/M4B/M4A/OGG/FLAC or EPUB into the library folder. Each audio folder is one book; M4B chapters are detected; every .epub is one ebook.
 - **Sleep timer**: 5–90 min or end of chapter. Volume fades out over the last 45 s (desktop/Android; iOS ignores web volume, so it stops without fading).
 - **Auto-rewind**: 60 s after the sleep timer stops it, 5–30 s after a long pause.
@@ -37,7 +38,7 @@ server/src/
   lib/imports.ts     shared one-at-a-time download queue
   lib/epub.ts        EPUB metadata + cover extraction
   lib/stream.ts      HTTP range streaming
-  routes/            auth, books, admin, discover, prefs
+  routes/            auth, books, admin, discover, prefs, kindle
   cli/create-user.ts
 web/src/
   player/PlayerContext.tsx   audio engine: multi-file books, sleep timer, rewind, sync

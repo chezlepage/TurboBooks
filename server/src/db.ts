@@ -113,6 +113,10 @@ const migrations: string[] = [
     cover_url  TEXT NOT NULL
   );
   `,
+  // v5: each user's Send-to-Kindle address.
+  `
+  ALTER TABLE users ADD COLUMN kindle_email TEXT;
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

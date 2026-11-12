@@ -174,6 +174,14 @@ export interface Person {
   finished: Activity[];
 }
 
+export interface KindleSettings {
+  /** False until the server admin sets up outgoing email. */
+  enabled: boolean;
+  /** The address users must add to Amazon's approved sender list. */
+  sender: string | null;
+  email: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -219,6 +227,9 @@ export const api = {
   clearSleepMark: (id: number) => request('DELETE', `/api/books/${id}/sleep-mark`),
   getPrefs: () => request<{ prefs: import('./prefs').Prefs | null }>('GET', '/api/me/prefs'),
   putPrefs: (prefs: import('./prefs').Prefs) => request('PUT', '/api/me/prefs', prefs),
+  kindle: () => request<KindleSettings>('GET', '/api/me/kindle'),
+  setKindleEmail: (email: string) => request<{ email: string | null }>('PUT', '/api/me/kindle', { email }),
+  sendToKindle: (id: number) => request<{ ok: true; to: string }>('POST', `/api/books/${id}/send-to-kindle`, {}),
   resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
   deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),
 
