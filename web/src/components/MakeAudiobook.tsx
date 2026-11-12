@@ -24,7 +24,8 @@ const ACTIVE: Conversion['status'][] = ['queued', 'reading', 'casting', 'annotat
  * Ebook page section: shows conversion progress, or a button that opens the
  * "Make an audiobook" sheet (voice picker with previews, character voices, cost estimate).
  */
-export function MakeAudiobook({ bookId }: { bookId: number }) {
+/** `autoOpen`: open the sheet straight away (arriving from a Request card), unless a conversion exists. */
+export function MakeAudiobook({ bookId, autoOpen = false }: { bookId: number; autoOpen?: boolean }) {
   const [status, setStatus] = useState<{
     enabled: boolean;
     reason?: string;
@@ -32,12 +33,15 @@ export function MakeAudiobook({ bookId }: { bookId: number }) {
   const [conversion, setConversion] = useState<Conversion | null>(null);
   const [open, setOpen] = useState(false);
   const [castOpen, setCastOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [autoOpened, setAutoOpened] = useState(false);
 
   const refresh = () =>
     api
       .bookConversion(bookId)
       .then((r) => setConversion(r.conversion))
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
 
   useEffect(() => {
     api
@@ -47,6 +51,14 @@ export function MakeAudiobook({ bookId }: { bookId: number }) {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
+
+  // Auto-open once, only when converting is available and this book has no running or finished conversion.
+  useEffect(() => {
+    if (!autoOpen || autoOpened || !loaded || !status?.enabled) return;
+    setAutoOpened(true);
+    const busy = conversion && (ACTIVE.includes(conversion.status) || conversion.status === 'done' || conversion.status === 'revoicing');
+    if (!busy) setOpen(true);
+  }, [autoOpen, autoOpened, loaded, status, conversion]);
 
   // Poll while a conversion is running (not while it waits for the user).
   const running = conversion && ACTIVE.includes(conversion.status);

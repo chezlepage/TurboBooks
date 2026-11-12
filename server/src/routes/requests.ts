@@ -4,6 +4,7 @@ import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
 import type { User } from '../lib/auth.js';
 import { addToLibrary } from '../lib/library.js';
+import { conversionsEnabled } from '../lib/convert/jobs.js';
 import { claimExisting, findExistingBook } from '../lib/requested.js';
 import * as shelfarr from '../lib/shelfarr.js';
 
@@ -30,6 +31,7 @@ interface OwnerRow {
   dismissed: number;
   book_id: number | null;
   language: string | null;
+  make_audiobook: number;
 }
 
 const getOwner = (requestId: number) =>
@@ -131,6 +133,8 @@ export async function requestRoutes(app: FastifyInstance) {
   app.get('/api/wishlist/status', async () => ({
     enabled: shelfarr.shelfarrEnabled(),
     languages: shelfarr.BOOK_LANGUAGES.map(({ code, name }) => ({ code, name })),
+    /** Whether "Make an audiobook" is set up, so failed audiobook requests can offer it. */
+    convertEnabled: conversionsEnabled(),
   }));
 
   app.get(
@@ -204,6 +208,7 @@ export async function requestRoutes(app: FastifyInstance) {
             coverUrl: covers.get(r.id) ?? null,
             createdAt: r.created_at,
             language: owner?.language ?? null,
+            makeAudiobook: !!owner?.make_audiobook,
             bookId,
           };
         }),
@@ -302,6 +307,56 @@ export async function requestRoutes(app: FastifyInstance) {
     const cover = db.prepare('SELECT cover_url FROM request_covers WHERE request_id = ?').get(id) as { cover_url: string } | undefined;
     for (const created of res.requests) {
       recordOwner(created.id, user.id, fresh);
+      if (cover) db.prepare('INSERT OR REPLACE INTO request_covers (request_id, cover_url) VALUES (?, ?)').run(created.id, cover.cover_url);
+    }
+    dismiss(req, user.id);
+    return { ok: true };
+  });
+
+  /**
+   * No audiobook to be found: request the ebook of the same book instead, optionally flagged to
+   * be turned into an audiobook once it arrives (the user starts the conversion themselves).
+   * If the ebook is already on the server it goes straight into the user's library.
+   */
+  app.post('/api/wishlist/:id/ebook-instead', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const { audiobook } = z.object({ audiobook: z.boolean().default(true) }).parse(request.body ?? {});
+    const user = request.user!;
+    const req = await ownRequest(id, user);
+    if (req.book.book_type !== 'audiobook') return reply.code(400).send({ error: 'This is already an ebook request' });
+    const owner = getOwner(id);
+    const workId = owner?.work_id || req.book.work_id;
+    if (!workId) return reply.code(422).send({ error: 'This request is too old. Search for the book and request the ebook.' });
+    const info = { workId, bookType: 'ebook', title: req.book.title, author: req.book.author, language: owner?.language ?? null };
+
+    const res = await createInShelfarr(info, user.id);
+    if (res.errors?.length) {
+      // Already downloaded once: it's on this server, just add it to this user's library.
+      if (res.errors.some((e) => /already in your library/i.test(e))) {
+        const bookId = findExistingBook('ebook', info.title, info.author ?? null);
+        if (bookId) {
+          addToLibrary(user.id, bookId);
+          dismiss(req, user.id);
+          return { ok: true, bookId };
+        }
+      }
+      // Already requested: flag that request instead of making a new one.
+      if (res.errors.some((e) => /already has an active request/i.test(e))) {
+        const mine = db
+          .prepare("SELECT request_id FROM request_owners WHERE user_id = ? AND work_id = ? AND book_type = 'ebook' AND dismissed = 0")
+          .get(user.id, workId) as { request_id: number } | undefined;
+        if (mine) {
+          db.prepare('UPDATE request_owners SET make_audiobook = ? WHERE request_id = ?').run(audiobook ? 1 : 0, mine.request_id);
+          dismiss(req, user.id);
+          return { ok: true };
+        }
+      }
+      return reply.code(422).send({ error: res.errors.join(', ') });
+    }
+    const cover = db.prepare('SELECT cover_url FROM request_covers WHERE request_id = ?').get(id) as { cover_url: string } | undefined;
+    for (const created of res.requests) {
+      recordOwner(created.id, user.id, info);
+      db.prepare('UPDATE request_owners SET make_audiobook = ? WHERE request_id = ?').run(audiobook ? 1 : 0, created.id);
       if (cover) db.prepare('INSERT OR REPLACE INTO request_covers (request_id, cover_url) VALUES (?, ?)').run(created.id, cover.cover_url);
     }
     dismiss(req, user.id);

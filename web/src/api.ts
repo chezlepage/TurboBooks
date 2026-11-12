@@ -174,6 +174,8 @@ export interface WishRequest {
   bookId: number | null;
   /** Language the book was requested in (null: Shelfarr's default). */
   language: string | null;
+  /** An ebook requested to be turned into an audiobook once it arrives. */
+  makeAudiobook: boolean;
 }
 
 export interface BookLanguage {
@@ -381,7 +383,8 @@ export const api = {
   retryImport: (id: number) => request('POST', `/api/imports/${id}/retry`, {}),
   dismissImport: (id: number) => request('DELETE', `/api/imports/${id}`),
 
-  wishlistStatus: () => request<{ enabled: boolean; languages: BookLanguage[] }>('GET', '/api/wishlist/status'),
+  wishlistStatus: () =>
+    request<{ enabled: boolean; languages: BookLanguage[]; convertEnabled: boolean }>('GET', '/api/wishlist/status'),
   wishlistSearch: (q: string) =>
     request<{ results: WishResult[] }>('GET', `/api/wishlist/search?q=${encodeURIComponent(q)}`),
   wishlist: () => request<{ requests: WishRequest[] }>('GET', '/api/wishlist'),
@@ -404,6 +407,9 @@ export const api = {
   wishlistGrab: (id: number, releaseId: number) => request('POST', `/api/wishlist/${id}/grab`, { releaseId }),
   wishlistRetry: (id: number) => request('POST', `/api/wishlist/${id}/retry`, {}),
   wishlistCancel: (id: number) => request('DELETE', `/api/wishlist/${id}`),
+  /** Request the ebook in place of an audiobook nobody had; `bookId` when it was already on the server. */
+  wishlistEbookInstead: (id: number, audiobook: boolean) =>
+    request<{ ok: true; bookId?: number }>('POST', `/api/wishlist/${id}/ebook-instead`, { audiobook }),
 
   people: () => request<{ people: PersonSummary[] }>('GET', '/api/people'),
   person: (id: number) => request<{ person: Person }>('GET', `/api/people/${id}`),

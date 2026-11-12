@@ -699,3 +699,32 @@
 .rq-page .rq-lang-tag {
   color: var(--accent);
 }
+
+/* ---------- no audiobook: get the ebook (and make one) ---------- */
+.rq-page .rq-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  border: 1px dashed rgba(242, 180, 90, 0.35);
+  background: rgba(242, 180, 90, 0.06);
+}
+.rq-page .rq-fallback p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.rq-page .rq-fallback .btn {
+  gap: 0.4rem;
+}
+.rq-page .rq-then {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--accent);
+}

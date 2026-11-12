@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { BookLanguage, Edition, Release, WishRequest, WishResult } from '../api';
 import { useAuth } from '../auth';
@@ -281,20 +281,27 @@ function ReleaseSheet({ request, onDone, onClose }: { request: WishRequest; onDo
 
 function RequestCard({
   r,
+  convertEnabled,
   onPick,
   onRetry,
   onRemove,
+  onEbookInstead,
 }: {
   r: WishRequest;
+  convertEnabled: boolean;
   onPick: () => void;
   onRetry: () => void;
   onRemove: () => void;
+  onEbookInstead: () => Promise<void>;
 }) {
   const running = IN_FLIGHT.includes(r.status);
   const failed = FAILED.includes(r.status);
   const done = r.status === 'completed';
   const pick = needsPick(r);
   const tone = pick ? 'attention' : done ? 'done' : failed ? 'bad' : 'busy';
+  const noAudiobook = failed && r.bookType === 'audiobook';
+  const thenAudiobook = r.makeAudiobook && r.bookType === 'ebook' && convertEnabled;
+  const [switching, setSwitching] = useState(false);
 
   return (
     <li className={`rq-card ${pick ? 'rq-card-attention' : ''}`}>
@@ -311,7 +318,36 @@ function RequestCard({
           {pick ? 'Pick a download' : done && !r.bookId ? 'Arriving in your library shortly' : statusText(r.status)}
           <span className="rq-when">· {timeAgo(r.createdAt)}</span>
         </div>
+        {thenAudiobook && !done && !failed && (
+          <p className="rq-then">
+            <HeadphonesIcon size={13} /> Then you can turn it into an audiobook
+          </p>
+        )}
         {r.issue && (pick || failed) && <p className="rq-issue">{r.issue}</p>}
+        {noAudiobook && (
+          <div className="rq-fallback">
+            <p>
+              {convertEnabled
+                ? 'No audiobook out there. Get the ebook and TurboBooks can read it to you.'
+                : 'No audiobook out there. You can still get the ebook.'}
+            </p>
+            <button
+              className="btn btn-small btn-primary"
+              disabled={switching}
+              onClick={async () => {
+                setSwitching(true);
+                try {
+                  await onEbookInstead();
+                } finally {
+                  setSwitching(false);
+                }
+              }}
+            >
+              {convertEnabled ? <HeadphonesIcon size={16} /> : <BookOpenIcon size={16} />}
+              {switching ? 'Requesting…' : convertEnabled ? 'Get the ebook & make an audiobook' : 'Get the ebook instead'}
+            </button>
+          </div>
+        )}
         {running && !pick && <div className="rq-progress" role="progressbar" aria-label={statusText(r.status)} />}
         {(pick || failed || (done && r.bookId)) && (
           <div className="rq-card-actions">
@@ -325,9 +361,15 @@ function RequestCard({
                 <RetryIcon size={16} /> Try again
               </button>
             )}
+            {done && r.bookId && thenAudiobook && (
+              <Link className="btn btn-small btn-primary" to={`/book/${r.bookId}?audiobook=1`}>
+                <HeadphonesIcon size={16} /> Make the audiobook
+              </Link>
+            )}
             {done && r.bookId && (
-              <Link className="btn btn-small btn-primary" to={`/book/${r.bookId}`}>
-                {r.bookType === 'audiobook' ? <HeadphonesIcon size={16} /> : <BookOpenIcon size={16} />} Open
+              <Link className={`btn btn-small ${thenAudiobook ? '' : 'btn-primary'}`} to={`/book/${r.bookId}`}>
+                {r.bookType === 'audiobook' ? <HeadphonesIcon size={16} /> : <BookOpenIcon size={16} />}{' '}
+                {thenAudiobook ? 'Read' : 'Open'}
               </Link>
             )}
           </div>
@@ -418,6 +460,8 @@ function ResultCard({
 export function Request() {
   const { user } = useAuth();
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const navigate = useNavigate();
+  const [convertEnabled, setConvertEnabled] = useState(false);
   const [languages, setLanguages] = useState<BookLanguage[]>([{ code: 'en', name: 'English' }]);
   const [lang, setLangState] = useState(() => loadLang(user?.id));
   const setLang = (code: string) => {
@@ -450,6 +494,7 @@ export function Request() {
       .wishlistStatus()
       .then((r) => {
         setEnabled(r.enabled);
+        setConvertEnabled(!!r.convertEnabled);
         if (r.languages?.length) setLanguages(r.languages);
       })
       .catch(() => setEnabled(false));
@@ -519,6 +564,26 @@ export function Request() {
     void act(() => api.wishlistCancel(r.id), running ? 'Request cancelled' : undefined);
   };
 
+  /** No audiobook anywhere: get the ebook instead (and, when set up, turn it into an audiobook). */
+  const ebookInstead = async (r: WishRequest) => {
+    try {
+      const res = await api.wishlistEbookInstead(r.id, convertEnabled);
+      if (res.bookId) {
+        toast('The ebook was already here: added to your library');
+        navigate(convertEnabled ? `/book/${res.bookId}?audiobook=1` : `/book/${res.bookId}`);
+        return;
+      }
+      toast(
+        convertEnabled
+          ? 'Ebook requested. When it arrives, tap "Make the audiobook".'
+          : 'Ebook requested. Follow it in My requests.',
+      );
+      refresh();
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  };
+
   const clearAll = (items: WishRequest[]) => {
     const ids = new Set(items.map((r) => r.id));
     setRequests((l) => l?.filter((x) => !ids.has(x.id)) ?? null);
@@ -559,8 +624,10 @@ export function Request() {
       key={r.id}
       r={r}
       onPick={() => setPickFor(r)}
+      convertEnabled={convertEnabled}
       onRetry={() => void act(() => api.wishlistRetry(r.id), 'Trying again')}
       onRemove={() => remove(r)}
+      onEbookInstead={() => ebookInstead(r)}
     />
   );
 

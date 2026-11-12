@@ -228,6 +228,10 @@ const migrations: string[] = [
   ALTER TABLE conversions ADD COLUMN voice_mode TEXT NOT NULL DEFAULT 'auto';
   ALTER TABLE conversions ADD COLUMN voice_map TEXT;
   `,
+  // v13: an ebook requested in place of an audiobook nobody had, to be turned into an audiobook.
+  `
+  ALTER TABLE request_owners ADD COLUMN make_audiobook INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

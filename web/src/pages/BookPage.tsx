@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, coverUrl, formatDuration, formatTime } from '../api';
 import type { BookDetail, KindleSettings } from '../api';
 import { useAuth } from '../auth';
@@ -22,6 +22,7 @@ export function BookPage() {
   const { id } = useParams();
   const bookId = Number(id);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const player = usePlayer();
   const { position: livePosition } = useClock();
@@ -274,7 +275,7 @@ export function BookPage() {
             />
           )}
 
-          {isEbook && book.inLibrary && <MakeAudiobook bookId={book.id} />}
+          {isEbook && book.inLibrary && <MakeAudiobook bookId={book.id} autoOpen={searchParams.get('audiobook') === '1'} />}
 
           {description && (
             <div className="description-block">
