@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import type { WishRequest, WishResult } from '../api';
+import type { Release, WishRequest, WishResult } from '../api';
 import { Cover } from '../components/Cover';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -20,6 +20,65 @@ const label = (s: string) => STATUS_LABEL[s] ?? s.replace(/_/g, ' ');
 const IN_FLIGHT = ['pending', 'searching', 'found', 'downloading', 'processing'];
 const RETRYABLE = ['failed', 'not_found'];
 
+const formatSize = (b: number | null) =>
+  b ? (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`) : '';
+
+/** Lets the user choose which release Shelfarr downloads when it did not pick one itself. */
+function ReleasePicker({ id, onDone, onError }: { id: number; onDone: () => void; onError: (m: string) => void }) {
+  const [releases, setReleases] = useState<Release[] | null>(null);
+  const [grabbing, setGrabbing] = useState<number | null>(null);
+
+  useEffect(() => {
+    api
+      .wishlistReleases(id)
+      .then((r) => setReleases(r.releases))
+      .catch((e: Error) => {
+        onError(e.message);
+        setReleases([]);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const grab = async (r: Release) => {
+    setGrabbing(r.id);
+    try {
+      await api.wishlistGrab(id, r.id);
+      onDone();
+    } catch (e) {
+      onError((e as Error).message);
+      setGrabbing(null);
+    }
+  };
+
+  if (!releases) return <p className="muted small">Loading options…</p>;
+  if (releases.length === 0) return <p className="muted small">No downloadable options.</p>;
+  return (
+    <ul className="release-list">
+      {releases.map((r) => (
+        <li key={r.id} className="release">
+          <div className="release-text">
+            <div className="release-title">{r.title}</div>
+            <div className="muted small">
+              {[
+                r.source,
+                formatSize(r.sizeBytes),
+                r.seeders != null ? `${r.seeders} seeders` : '',
+                r.language,
+                r.confidence != null ? `${Math.round(r.confidence)}% match` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          </div>
+          <button className="btn btn-small btn-primary" disabled={grabbing !== null} onClick={() => grab(r)}>
+            {grabbing === r.id ? '…' : 'Download'}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function Request() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [params] = useSearchParams();
@@ -30,6 +89,8 @@ export function Request() {
   const [requests, setRequests] = useState<WishRequest[]>([]);
   /** workId:type pairs requested this session, so the button flips immediately. */
   const [sent, setSent] = useState<Set<string>>(new Set());
+  /** Request whose release list is open. */
+  const [picking, setPicking] = useState<number | null>(null);
 
   const refresh = useCallback(() => {
     api
@@ -147,7 +208,22 @@ export function Request() {
                     <div style={{ width: '35%' }} />
                   </div>
                 )}
+                {picking === r.id && (
+                  <ReleasePicker
+                    id={r.id}
+                    onError={setError}
+                    onDone={() => {
+                      setPicking(null);
+                      refresh();
+                    }}
+                  />
+                )}
               </div>
+              {r.needsAttention && IN_FLIGHT.includes(r.status) && (
+                <button className="btn btn-small btn-primary" onClick={() => setPicking(picking === r.id ? null : r.id)}>
+                  {picking === r.id ? 'Hide' : 'Choose'}
+                </button>
+              )}
               {RETRYABLE.includes(r.status) && (
                 <button className="btn btn-small" onClick={act(() => api.wishlistRetry(r.id))}>
                   Retry

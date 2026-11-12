@@ -14,6 +14,14 @@ const createBody = z.object({
   year: z.union([z.number(), z.string().max(10)]).nullish(),
 });
 
+/** Only requests made from TurboBooks can be managed here (the token can see all of Shelfarr's). */
+async function ownRequest(id: number): Promise<void> {
+  const { requests } = await shelfarr.listRequests();
+  if (!requests.some((r) => r.id === id && r.request.external_source === 'turbobooks')) {
+    throw new shelfarr.ShelfarrError('Request not found', 404);
+  }
+}
+
 export async function requestRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireUser);
 
@@ -81,6 +89,33 @@ export async function requestRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  app.get('/api/wishlist/:id/releases', async (request) => {
+    const { id } = idParam.parse(request.params);
+    await ownRequest(id);
+    const { search_results } = await shelfarr.releases(id);
+    return {
+      releases: search_results
+        .filter((r) => r.downloadable && !r.blocklisted)
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          source: r.indexer ?? r.source,
+          seeders: r.seeders,
+          sizeBytes: r.size_bytes,
+          confidence: r.confidence_score,
+          language: r.detected_language,
+        })),
+    };
+  });
+
+  app.post('/api/wishlist/:id/grab', async (request) => {
+    const { id } = idParam.parse(request.params);
+    const { releaseId } = z.object({ releaseId: z.number().int().positive() }).parse(request.body);
+    await ownRequest(id);
+    await shelfarr.grabRelease(id, releaseId);
+    return { ok: true };
+  });
 
   app.post('/api/wishlist/:id/retry', async (request) => {
     await shelfarr.retryRequest(idParam.parse(request.params).id);

@@ -75,3 +75,23 @@ export const createRequest = (body: Record<string, unknown>) =>
 
 export const retryRequest = (id: number) => call<ShelfarrRequest>('POST', `/requests/${id}/retry`);
 export const cancelRequest = (id: number) => call<ShelfarrRequest>('DELETE', `/requests/${id}`);
+
+export interface ShelfarrRelease {
+  id: number;
+  title: string;
+  source: string | null;
+  indexer: string | null;
+  seeders: number | null;
+  size_bytes: number | null;
+  confidence_score: number | null;
+  detected_language: string | null;
+  status: string;
+  downloadable: boolean;
+  blocklisted: boolean;
+}
+
+export const releases = (id: number) =>
+  call<{ search_results: ShelfarrRelease[] }>('GET', `/requests/${id}/search_results`);
+
+export const grabRelease = (id: number, searchResultId: number) =>
+  call<unknown>('POST', `/requests/${id}/grab`, { search_result_id: searchResultId });

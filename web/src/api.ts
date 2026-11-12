@@ -107,6 +107,15 @@ export interface WishResult {
   coverUrl: string | null;
   series: string | null;
 }
+export interface Release {
+  id: number;
+  title: string;
+  source: string | null;
+  seeders: number | null;
+  sizeBytes: number | null;
+  confidence: number | null;
+  language: string | null;
+}
 export interface WishRequest {
   id: number;
   status: string;
@@ -195,6 +204,8 @@ export const api = {
       coverUrl: r.coverUrl,
       year: r.year,
     }),
+  wishlistReleases: (id: number) => request<{ releases: Release[] }>('GET', `/api/wishlist/${id}/releases`),
+  wishlistGrab: (id: number, releaseId: number) => request('POST', `/api/wishlist/${id}/grab`, { releaseId }),
   wishlistRetry: (id: number) => request('POST', `/api/wishlist/${id}/retry`, {}),
   wishlistCancel: (id: number) => request('DELETE', `/api/wishlist/${id}`),
 
