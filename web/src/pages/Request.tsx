@@ -184,6 +184,36 @@ function CoverSheet({
 }
 
 /** Lets the user choose which download Shelfarr grabs when it couldn't pick one itself. */
+// Only names that don't double as ordinary words (no "doc", "txt", "opus": "Doc Savage", "Magnum Opus").
+const EBOOK_FORMATS = ['epub', 'pdf', 'mobi', 'azw3', 'azw', 'kfx', 'fb2', 'djvu', 'cbz', 'cbr'];
+const AUDIO_FORMATS = ['m4b', 'mp3', 'm4a', 'flac'];
+const FORMAT_RE = new RegExp(`(?:^|[^a-z0-9])(${[...EBOOK_FORMATS, ...AUDIO_FORMATS].join('|')})(?=$|[^a-z0-9])`, 'gi');
+
+/**
+ * File types named in a release title ("… [EPUB]", "….pdf", "(epub, mobi)"). Shelfarr doesn't say,
+ * so the title is all there is; many torrents don't mention it at all.
+ */
+function releaseFormats(title: string): string[] {
+  return [...new Set([...title.matchAll(FORMAT_RE)].map((m) => m[1].toLowerCase()))];
+}
+
+/** Will TurboBooks be able to open it? null when the title doesn't say. */
+function releaseReadable(formats: string[], bookType: string): boolean | null {
+  if (!formats.length) return null;
+  return bookType === 'ebook' ? formats.includes('epub') : formats.some((f) => AUDIO_FORMATS.includes(f));
+}
+
+function FormatTag({ formats, readable, bookType }: { formats: string[]; readable: boolean | null; bookType: string }) {
+  if (readable === null) return <span className="rq-tag">File type unknown</span>;
+  const label = formats.map((f) => f.toUpperCase()).join(' · ');
+  if (readable) return <span className="rq-tag good">{label}</span>;
+  return (
+    <span className="rq-tag bad" title={bookType === 'ebook' ? 'TurboBooks only opens EPUB ebooks (and only EPUB can go to Kindle from here)' : undefined}>
+      {label} · won't open here
+    </span>
+  );
+}
+
 function ReleaseSheet({ request, onDone, onClose }: { request: WishRequest; onDone: () => void; onClose: () => void }) {
   const [releases, setReleases] = useState<Release[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -192,9 +222,18 @@ function ReleaseSheet({ request, onDone, onClose }: { request: WishRequest; onDo
   useEffect(() => {
     api
       .wishlistReleases(request.id)
-      .then((r) => setReleases(r.releases))
+      .then((r) =>
+        // Copies TurboBooks can't open (a PDF for an ebook request…) go last, so they're never "Best match".
+        setReleases(
+          [...r.releases].sort(
+            (a, b) =>
+              Number(releaseReadable(releaseFormats(a.title), request.bookType) === false) -
+              Number(releaseReadable(releaseFormats(b.title), request.bookType) === false),
+          ),
+        ),
+      )
       .catch((e: Error) => setError(e.message));
-  }, [request.id]);
+  }, [request.id, request.bookType]);
 
   const grab = async (r: Release) => {
     setGrabbing(r.id);
@@ -242,13 +281,16 @@ function ReleaseSheet({ request, onDone, onClose }: { request: WishRequest; onDo
         <ul className="rq-releases">
           {releases.map((r, i) => {
             const dead = !r.direct && r.seeders === 0;
-            const best = i === 0 && !dead;
+            const formats = releaseFormats(decodeEntities(r.title));
+            const readable = releaseReadable(formats, request.bookType);
+            const best = i === 0 && !dead && readable !== false;
             return (
               <li key={r.id} className={`rq-release ${best ? 'best' : ''} ${dead ? 'dead' : ''}`}>
                 <div className="rq-release-text">
                   {best && <span className="rq-best">Best match</span>}
                   <div className="rq-release-title">{decodeEntities(r.title)}</div>
                   <div className="rq-release-tags">
+                    <FormatTag formats={formats} readable={readable} bookType={request.bookType} />
                     {r.direct ? (
                       <span className="rq-tag good">Direct download</span>
                     ) : (
