@@ -1160,3 +1160,5 @@ section {
   max-height: 60vh;
   overflow-y: auto;
 }
+
+.request-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

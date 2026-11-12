@@ -99,6 +99,25 @@ export interface AdminUser {
   createdAt: number;
 }
 
+export interface WishResult {
+  workId: string;
+  title: string;
+  author: string | null;
+  year: number | string | null;
+  coverUrl: string | null;
+  series: string | null;
+}
+export interface WishRequest {
+  id: number;
+  status: string;
+  needsAttention: boolean;
+  issue: string | null;
+  title: string;
+  author: string | null;
+  bookType: string;
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -162,6 +181,22 @@ export const api = {
   imports: () => request<{ imports: ImportJob[] }>('GET', '/api/imports'),
   retryImport: (id: number) => request('POST', `/api/imports/${id}/retry`, {}),
   dismissImport: (id: number) => request('DELETE', `/api/imports/${id}`),
+
+  wishlistStatus: () => request<{ enabled: boolean }>('GET', '/api/wishlist/status'),
+  wishlistSearch: (q: string) =>
+    request<{ results: WishResult[] }>('GET', `/api/wishlist/search?q=${encodeURIComponent(q)}`),
+  wishlist: () => request<{ requests: WishRequest[] }>('GET', '/api/wishlist'),
+  wishlistRequest: (r: WishResult, bookType: 'audiobook' | 'ebook') =>
+    request('POST', '/api/wishlist', {
+      workId: r.workId,
+      bookType,
+      title: r.title,
+      author: r.author,
+      coverUrl: r.coverUrl,
+      year: r.year,
+    }),
+  wishlistRetry: (id: number) => request('POST', `/api/wishlist/${id}/retry`, {}),
+  wishlistCancel: (id: number) => request('DELETE', `/api/wishlist/${id}`),
 
   users: () => request<{ users: AdminUser[] }>('GET', '/api/admin/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>

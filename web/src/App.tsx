@@ -1,10 +1,11 @@
 import { Suspense, lazy } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
-import { BooksIcon, GearIcon, SearchIcon } from './components/Icons';
+import { BooksIcon, GearIcon, PlusIcon, SearchIcon } from './components/Icons';
 import { MiniPlayer } from './components/MiniPlayer';
 import { BookPage } from './pages/BookPage';
 import { Discover } from './pages/Discover';
+import { Request } from './pages/Request';
 import { Library } from './pages/Library';
 import { Login } from './pages/Login';
 import { PlayerPage } from './pages/PlayerPage';
@@ -46,6 +47,7 @@ function Shell() {
             }
           />
           <Route path="/discover" element={<Discover />} />
+          <Route path="/request" element={<Request />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -61,6 +63,10 @@ function Shell() {
             <NavLink to="/discover">
               <SearchIcon size={22} />
               <span>Discover</span>
+            </NavLink>
+            <NavLink to="/request">
+              <PlusIcon size={22} />
+              <span>Request</span>
             </NavLink>
             <NavLink to="/settings">
               <GearIcon size={22} />

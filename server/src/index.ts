@@ -15,6 +15,7 @@ import { authRoutes } from './routes/auth.js';
 import { bookRoutes } from './routes/books.js';
 import { discoverRoutes } from './routes/discover.js';
 import { prefsRoutes } from './routes/prefs.js';
+import { requestRoutes } from './routes/requests.js';
 
 const app = Fastify({
   trustProxy: config.trustProxy,
@@ -51,6 +52,7 @@ await app.register(bookRoutes);
 await app.register(adminRoutes);
 await app.register(discoverRoutes);
 await app.register(prefsRoutes);
+await app.register(requestRoutes);
 
 // Serve the built web app, with SPA fallback to index.html.
 const hasWeb = fs.existsSync(path.join(config.webDir, 'index.html'));

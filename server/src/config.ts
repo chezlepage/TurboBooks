@@ -34,6 +34,9 @@ export const config = {
   trustProxy: bool(env.TRUST_PROXY, true),
   ffprobePath: env.FFPROBE_PATH ?? 'ffprobe',
   ffmpegPath: env.FFMPEG_PATH ?? 'ffmpeg',
+  /** Shelfarr base URL and API token (scopes: search, requests read + write). Enables the Request tab. */
+  shelfarrUrl: (env.SHELFARR_URL ?? '').replace(/\/+$/, ''),
+  shelfarrToken: env.SHELFARR_TOKEN ?? '',
   /** Minutes between automatic library rescans. 0 disables. */
   scanIntervalMinutes: Number(env.SCAN_INTERVAL_MINUTES ?? 30),
 };
