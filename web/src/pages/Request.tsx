@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { WishRequest, WishResult } from '../api';
 import { Cover } from '../components/Cover';
@@ -21,7 +22,8 @@ const RETRYABLE = ['failed', 'not_found'];
 
 export function Request() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [query, setQuery] = useState('');
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState(() => params.get('q') ?? '');
   const [results, setResults] = useState<WishResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +53,7 @@ export function Request() {
     return () => window.clearInterval(id);
   }, [enabled, busy, refresh]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const q = query.trim();
+  const runSearch = async (q: string) => {
     if (q.length < 2) return;
     setSearching(true);
     setError(null);
@@ -65,6 +65,16 @@ export function Request() {
       setSearching(false);
     }
   };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void runSearch(query.trim());
+  };
+
+  // Arriving from Discover with a search: run it straight away.
+  useEffect(() => {
+    if (enabled && query.trim().length >= 2 && results === null) void runSearch(query.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
 
   const request = async (r: WishResult, type: 'audiobook' | 'ebook') => {
     setError(null);

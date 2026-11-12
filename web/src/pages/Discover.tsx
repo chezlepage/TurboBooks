@@ -279,7 +279,16 @@ export function Discover() {
       )}
 
       {results && results.length === 0 && !loading && (
-        <p className="muted">Nothing found. Try fewer words, just the author's name, or turn off "English only".</p>
+        <p className="muted">
+          Nothing found. Discover only has free public-domain books. Try fewer words, or turn off "English only".
+          {activeQuery && (
+            <>
+              {' '}
+              <Link to={`/request?q=${encodeURIComponent(activeQuery)}`}>Request “{activeQuery}” instead</Link> (any book, audiobook or
+              ebook).
+            </>
+          )}
+        </p>
       )}
 
       {results && (
