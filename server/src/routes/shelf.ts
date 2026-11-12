@@ -4,6 +4,7 @@ import { db, now } from '../db.js';
 import { requireUser } from '../lib/auth.js';
 import { checkFreeCopies, importGoodreadsCsv, isCheckingFree } from '../lib/goodreads.js';
 import { canAccessBook } from '../lib/library.js';
+import { getPrivacy, shelfItemHidden } from './prefs.js';
 
 /**
  * My shelves: books I want to read or have read outside the library (Goodreads import or
@@ -44,7 +45,7 @@ interface ShelfRow {
   free_checked_at: number | null;
 }
 
-export const toShelfItem = (r: ShelfRow) => ({
+export const toShelfItem = (r: ShelfRow, privateByDefault = false) => ({
   id: r.id,
   shelf: r.shelf,
   title: r.title,
@@ -54,7 +55,7 @@ export const toShelfItem = (r: ShelfRow) => ({
   review: r.review,
   dateRead: r.date_read,
   dateAdded: r.date_added,
-  hidden: r.hidden === 1,
+  hidden: shelfItemHidden(r.hidden, privateByDefault),
   bookId: r.book_id,
   freeEbookId: r.free_ebook_id,
   freeAudioId: r.free_audio_id,
@@ -68,7 +69,8 @@ export async function shelfRoutes(app: FastifyInstance) {
     const rows = db
       .prepare('SELECT * FROM shelf_items WHERE user_id = ? ORDER BY COALESCE(date_read, date_added) DESC')
       .all(request.user!.id) as ShelfRow[];
-    return { items: rows.map(toShelfItem), checkingFree: isCheckingFree(request.user!.id) };
+    const { privateByDefault } = getPrivacy(request.user!.id);
+    return { items: rows.map((r) => toShelfItem(r, privateByDefault)), checkingFree: isCheckingFree(request.user!.id) };
   });
 
   /** Goodreads export CSV, sent as text. Big libraries can be a few MB. */
@@ -121,7 +123,8 @@ export async function shelfRoutes(app: FastifyInstance) {
     }
     if (body.data.hidden !== undefined) {
       sets.push('hidden = @hidden');
-      params.hidden = body.data.hidden ? 1 : 0;
+      // -1 = explicitly shown, so it stays visible even when private-by-default is on.
+      params.hidden = body.data.hidden ? 1 : -1;
     }
     if (body.data.rating !== undefined) {
       sets.push('rating = @rating');

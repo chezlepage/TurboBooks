@@ -9,6 +9,7 @@ import { getPrivacy } from '../routes/prefs.js';
 
 export function addToLibrary(userId: number, bookId: number): void {
   db.prepare('INSERT OR IGNORE INTO library_entries (user_id, book_id, added_at) VALUES (?, ?, ?)').run(userId, bookId, now());
+  db.prepare('UPDATE books SET ever_owned = 1 WHERE id = ? AND ever_owned = 0').run(bookId);
 }
 
 export function removeFromLibrary(userId: number, bookId: number): void {
@@ -19,9 +20,18 @@ export function inLibrary(userId: number, bookId: number): boolean {
   return !!db.prepare('SELECT 1 FROM library_entries WHERE user_id = ? AND book_id = ?').get(userId, bookId);
 }
 
-/** Books on disk that nobody has in their library (e.g. files copied into the folder by hand). */
+/**
+ * Books on disk that nobody has ever had (e.g. files copied into the folder by hand). Books
+ * that someone owned and then removed are *not* unclaimed: showing them to admins would
+ * reveal that somebody had them.
+ */
 export function isUnclaimed(bookId: number): boolean {
-  return !db.prepare('SELECT 1 FROM library_entries WHERE book_id = ? LIMIT 1').get(bookId);
+  return !!db
+    .prepare(
+      `SELECT 1 FROM books b WHERE b.id = ? AND b.ever_owned = 0
+       AND NOT EXISTS (SELECT 1 FROM library_entries x WHERE x.book_id = b.id)`,
+    )
+    .get(bookId);
 }
 
 /**

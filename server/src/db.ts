@@ -195,6 +195,13 @@ const migrations: string[] = [
   `
   ALTER TABLE request_owners ADD COLUMN language TEXT;
   `,
+  // v10: remember that a book once belonged to someone, so that when its last owner removes it
+  // it doesn't show up on the admin's "Unclaimed" shelf (which would reveal someone had it).
+  `
+  ALTER TABLE books ADD COLUMN ever_owned INTEGER NOT NULL DEFAULT 0;
+  UPDATE books SET ever_owned = 1
+    WHERE id IN (SELECT book_id FROM library_entries) OR id IN (SELECT book_id FROM progress);
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

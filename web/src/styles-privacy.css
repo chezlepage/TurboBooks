@@ -93,3 +93,9 @@
   border-color: var(--accent-dim);
   color: var(--accent);
 }
+
+.privacy-sub {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}

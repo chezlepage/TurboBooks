@@ -15,6 +15,10 @@ export interface Prefs {
   shareActivity: boolean;
   /** Books that never appear on my profile for others. */
   hiddenBooks: number[];
+  /** Every book is hidden from others unless listed in shownBooks (admins included). */
+  privateByDefault: boolean;
+  /** With privateByDefault: books I chose to show anyway. */
+  shownBooks: number[];
   /** Yearly reading goals, e.g. { "2026": 20 }. */
   readingGoals: Record<string, number>;
 }
@@ -27,15 +31,30 @@ export const DEFAULT_PREFS: Prefs = {
   readerFontSize: 110,
   shareActivity: true,
   hiddenBooks: [],
+  privateByDefault: false,
+  shownBooks: [],
   readingGoals: {},
 };
 
-/** Hide or show one book on my profile. */
+/** Is this book hidden from others on my profile? */
+export function isBookHidden(p: Prefs, bookId: number): boolean {
+  return p.privateByDefault ? !p.shownBooks.includes(bookId) : p.hiddenBooks.includes(bookId);
+}
+
+/** Hide or show one book on my profile (works with either privacy mode). */
 export function setBookHidden(bookId: number, hidden: boolean): void {
-  const current = new Set(loadPrefs().hiddenBooks);
-  if (hidden) current.add(bookId);
-  else current.delete(bookId);
-  savePrefs({ hiddenBooks: [...current] });
+  const p = loadPrefs();
+  if (p.privateByDefault) {
+    const shown = new Set(p.shownBooks);
+    if (hidden) shown.delete(bookId);
+    else shown.add(bookId);
+    savePrefs({ shownBooks: [...shown] });
+  } else {
+    const current = new Set(p.hiddenBooks);
+    if (hidden) current.add(bookId);
+    else current.delete(bookId);
+    savePrefs({ hiddenBooks: [...current] });
+  }
 }
 const listeners = new Set<(p: Prefs) => void>();
 

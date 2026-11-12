@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
-import { getPrivacy, getReadingGoal } from './prefs.js';
+import { getPrivacy, getReadingGoal, shelfItemHidden } from './prefs.js';
 
 /**
  * Profiles: what each person on this server is reading or listening to, plus their
@@ -65,7 +65,7 @@ interface LogRow {
 }
 
 /** A book from outside the library (imported or added by hand). */
-const toLogItem = (r: LogRow, isOwner: boolean) => ({
+const toLogItem = (r: LogRow, isOwner: boolean, privateByDefault = false) => ({
   id: r.id,
   title: r.title,
   author: r.author,
@@ -74,7 +74,7 @@ const toLogItem = (r: LogRow, isOwner: boolean) => ({
   review: r.review,
   dateRead: r.date_read,
   dateAdded: r.date_added,
-  hidden: isOwner ? r.hidden === 1 : false,
+  hidden: isOwner ? shelfItemHidden(r.hidden, privateByDefault) : false,
   freeEbookId: isOwner ? r.free_ebook_id : null,
   freeAudioId: isOwner ? r.free_audio_id : null,
 });
@@ -98,8 +98,9 @@ function visibility(ownerId: number, viewerId: number) {
     exclude: isOwner ? new Set<number>() : privacy.hidden,
     /** Books to flag as hidden (owner's view only). */
     flag: isOwner ? privacy.hidden : undefined,
-    /** For shelf items: hidden ones are left out unless you're the owner. */
-    hiddenShelfSql: isOwner ? '' : ' AND s.hidden = 0',
+    /** For shelf items: hidden ones are left out unless you're the owner (see shelfItemHidden). */
+    hiddenShelfSql: isOwner ? '' : privacy.privateByDefault ? ' AND s.hidden = -1' : ' AND s.hidden <= 0',
+    privateByDefault: privacy.privateByDefault,
     sharing: privacy.share,
   };
 }
@@ -307,7 +308,7 @@ export async function profileRoutes(app: FastifyInstance) {
         db
           .prepare(`SELECT s.* FROM shelf_items s WHERE s.user_id = ? AND ${where}${v.hiddenShelfSql} ORDER BY ${order} LIMIT ${limit}`)
           .all(id) as LogRow[]
-      ).map((r) => toLogItem(r, v.isOwner));
+      ).map((r) => toLogItem(r, v.isOwner, v.privateByDefault));
 
     const stats = statsFor(id, v.exclude, v.hiddenShelfSql);
     const year = new Date().getFullYear();

@@ -104,7 +104,7 @@ export function Profile() {
     void load();
     // Reload when my privacy choices change so the "hidden" markers stay right.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, prefs.shareActivity, prefs.hiddenBooks.length]);
+  }, [id, prefs.shareActivity, prefs.hiddenBooks.length, prefs.privateByDefault, prefs.shownBooks.length]);
 
   if (error)
     return (
@@ -115,6 +115,13 @@ export function Profile() {
 
   const others = (people ?? []).filter((p) => p.id !== person?.id);
   const hiddenCount = prefs.hiddenBooks.length;
+  const shownCount = prefs.shownBooks.length;
+
+  const togglePrivateDefault = () => {
+    const next = !prefs.privateByDefault;
+    setPrefs({ privateByDefault: next });
+    toast(next ? 'Your books are private unless you choose to show one' : 'Your books are visible unless you hide one');
+  };
 
   const toggleSharing = () => {
     const next = !prefs.shareActivity;
@@ -166,15 +173,36 @@ export function Profile() {
                     <span>
                       <strong>Show my reading to others</strong>
                       <span className="muted small">
-                        {prefs.shareActivity
-                          ? hiddenCount > 0
-                            ? `On, except ${hiddenCount} hidden book${hiddenCount === 1 ? '' : 's'}.`
-                            : 'On. Hide any single book from its ⋯ menu.'
-                          : 'Off. Nobody else sees what you read or your stats.'}
+                        {!prefs.shareActivity
+                          ? 'Off. Nobody else sees what you read or your stats.'
+                          : prefs.privateByDefault
+                            ? shownCount > 0
+                              ? `Only the ${shownCount} book${shownCount === 1 ? '' : 's'} you chose to show.`
+                              : 'On, but every book is private until you show it.'
+                            : hiddenCount > 0
+                              ? `On, except ${hiddenCount} hidden book${hiddenCount === 1 ? '' : 's'}.`
+                              : 'On. Hide any single book from its ⋯ menu.'}
                       </span>
                     </span>
                     <input type="checkbox" role="switch" className="switch" checked={prefs.shareActivity} onChange={toggleSharing} />
                   </label>
+                  {prefs.shareActivity && (
+                    <label className="privacy-toggle privacy-sub">
+                      <span>
+                        <strong>Private by default</strong>
+                        <span className="muted small">
+                          New and existing books stay hidden, admins included, unless you pick “Show on my profile” on one.
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        role="switch"
+                        className="switch"
+                        checked={prefs.privateByDefault}
+                        onChange={togglePrivateDefault}
+                      />
+                    </label>
+                  )}
                 </section>
               )}
 

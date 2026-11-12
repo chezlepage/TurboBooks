@@ -15,6 +15,12 @@ const prefsSchema = z.object({
   shareActivity: z.boolean().default(true),
   /** Books that never appear on my profile for others, even when sharing is on. */
   hiddenBooks: z.array(z.number().int().positive()).max(10000).default([]),
+  /**
+   * Private by default: every book in my library is hidden from others unless I list it in
+   * shownBooks. Covers books added any way (Discover, requests, auto-added on play).
+   */
+  privateByDefault: z.boolean().default(false),
+  shownBooks: z.array(z.number().int().positive()).max(10000).default([]),
   /** Yearly reading goals, e.g. { "2026": 20 }. */
   readingGoals: z.record(z.string().regex(/^\d{4}$/), z.number().int().min(1).max(1000)).default({}),
 });
@@ -27,14 +33,36 @@ export function getReadingGoal(userId: number, year: number): number | null {
   return parsed.success ? (parsed.data.readingGoals[String(year)] ?? null) : null;
 }
 
-/** What a user has chosen to keep to themselves. Defaults to sharing everything. */
-export function getPrivacy(userId: number): { share: boolean; hidden: Set<number> } {
-  const row = db.prepare('SELECT data FROM user_prefs WHERE user_id = ?').get(userId) as { data: string } | undefined;
-  if (!row) return { share: true, hidden: new Set() };
-  const parsed = prefsSchema.safeParse(JSON.parse(row.data));
-  if (!parsed.success) return { share: true, hidden: new Set() };
-  return { share: parsed.data.shareActivity, hidden: new Set(parsed.data.hiddenBooks) };
+export interface Privacy {
+  share: boolean;
+  /** Library books others must not see. */
+  hidden: Set<number>;
+  privateByDefault: boolean;
 }
+
+/** What a user has chosen to keep to themselves. Defaults to sharing everything. */
+export function getPrivacy(userId: number): Privacy {
+  const row = db.prepare('SELECT data FROM user_prefs WHERE user_id = ?').get(userId) as { data: string } | undefined;
+  const parsed = row ? prefsSchema.safeParse(JSON.parse(row.data)) : null;
+  if (!parsed?.success) return { share: true, hidden: new Set(), privateByDefault: false };
+  const p = parsed.data;
+  if (!p.privateByDefault) return { share: p.shareActivity, hidden: new Set(p.hiddenBooks), privateByDefault: false };
+  // Private by default: everything I own is hidden except the books I chose to show.
+  const shown = new Set(p.shownBooks);
+  const owned = db.prepare('SELECT book_id FROM library_entries WHERE user_id = ?').all(userId) as { book_id: number }[];
+  return {
+    share: p.shareActivity,
+    hidden: new Set(owned.map((r) => r.book_id).filter((id) => !shown.has(id))),
+    privateByDefault: true,
+  };
+}
+
+/**
+ * Visibility of a shelf item (imported/logged book) for others. Its `hidden` column is
+ * 1 = hidden, -1 = explicitly shown, 0 = follow the default.
+ */
+export const shelfItemHidden = (hiddenCol: number, privateByDefault: boolean) =>
+  privateByDefault ? hiddenCol !== -1 : hiddenCol === 1;
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const markBody = z.object({ position: z.number().min(0) });

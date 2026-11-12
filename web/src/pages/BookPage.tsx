@@ -10,7 +10,7 @@ import { Stars } from '../components/Stars';
 import { celebrateFinish } from '../components/FinishedSheet';
 import { toast } from '../components/Toast';
 import { chapterAt, useClock, usePlayer } from '../player/PlayerContext';
-import { setBookHidden, usePrefs } from '../prefs';
+import { isBookHidden, setBookHidden, usePrefs } from '../prefs';
 
 const SOURCE_LABELS: Record<string, string> = {
   archive: 'LibriVox',
@@ -145,7 +145,7 @@ export function BookPage() {
     book.source ? SOURCE_LABELS[book.source] ?? book.source : 'Your files',
   ].filter(Boolean) as string[];
 
-  const isHidden = prefs.hiddenBooks.includes(book.id);
+  const isHidden = isBookHidden(prefs, book.id);
   const toggleHidden = () => {
     setMenuOpen(false);
     setBookHidden(book.id, !isHidden);

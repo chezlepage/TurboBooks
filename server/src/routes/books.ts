@@ -94,7 +94,7 @@ export async function bookRoutes(app: FastifyInstance) {
   app.get('/api/books/unclaimed', { preHandler: requireAdmin }, async (request) => {
     const rows = db
       .prepare(
-        `${BOOK_SELECT} WHERE NOT EXISTS (SELECT 1 FROM library_entries x WHERE x.book_id = b.id)
+        `${BOOK_SELECT} WHERE b.ever_owned = 0 AND NOT EXISTS (SELECT 1 FROM library_entries x WHERE x.book_id = b.id)
          ORDER BY b.added_at DESC`,
       )
       .all({ uid: request.user!.id }) as BookRow[];

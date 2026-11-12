@@ -10,7 +10,7 @@ import { useAuth } from '../auth';
 import { celebrateFinish } from '../components/FinishedSheet';
 import { toast } from '../components/Toast';
 import { usePlayer } from '../player/PlayerContext';
-import { setBookHidden, usePrefs } from '../prefs';
+import { isBookHidden, setBookHidden, usePrefs } from '../prefs';
 
 type Shelf = 'all' | 'audio' | 'ebook' | 'reading' | 'finished';
 
@@ -404,7 +404,7 @@ function QuickActions({ book, onClose, onChanged }: { book: Book; onClose: () =>
   const player = usePlayer();
   const [prefs] = usePrefs();
   const isEbook = book.kind === 'ebook';
-  const hidden = prefs.hiddenBooks.includes(book.id);
+  const hidden = isBookHidden(prefs, book.id);
   const finished = !!book.progress?.finished;
 
   const run = async (fn: () => Promise<void> | void) => {
