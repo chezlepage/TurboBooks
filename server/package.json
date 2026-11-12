@@ -11,6 +11,7 @@
     "create-user": "tsx src/cli/create-user.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/rate-limit": "^10.2.2",
     "@fastify/static": "^10.1.10",

@@ -18,11 +18,30 @@ services:
       - ${LIBRARY_PATH:-./library}:/library
     networks:
       - tunnel
+      - internal
     # Optional LAN access at http://<vm-ip>:8095 (8080 is often taken, e.g. by qBittorrent).
     # ports:
     #   - "8095:8080"
 
+  # Text-to-speech for ebook → audiobook conversion. GPU-backed, reachable only by TurboBooks
+  # (internal network, no published ports). Needs the NVIDIA container toolkit on the host.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.9.2
+    container_name: turbobooks-kokoro
+    restart: unless-stopped
+    networks:
+      - internal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 networks:
+  internal:
+    internal: true
   tunnel:
     external: true
     name: ${TUNNEL_NETWORK:-mediastack_default}

@@ -5,6 +5,7 @@ import type { BookDetail, KindleSettings } from '../api';
 import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
 import { BooksIcon, ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/Icons';
+import { MakeAudiobook } from '../components/MakeAudiobook';
 import { BookSkeleton } from '../components/Skeleton';
 import { Stars } from '../components/Stars';
 import { celebrateFinish } from '../components/FinishedSheet';
@@ -272,6 +273,8 @@ export function BookPage() {
               onSaved={(r) => setBook({ ...book, myRating: r })}
             />
           )}
+
+          {isEbook && book.inLibrary && <MakeAudiobook bookId={book.id} />}
 
           {description && (
             <div className="description-block">

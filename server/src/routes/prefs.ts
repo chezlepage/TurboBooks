@@ -21,6 +21,8 @@ const prefsSchema = z.object({
    */
   privateByDefault: z.boolean().default(false),
   shownBooks: z.array(z.number().int().positive()).max(10000).default([]),
+  /** Last narrator voice picked for ebook → audiobook (a Kokoro voice id). */
+  ttsVoice: z.string().regex(/^[a-z]{2}_[a-z0-9_]{1,40}$/).default('af_heart'),
   /** Yearly reading goals, e.g. { "2026": 20 }. */
   readingGoals: z.record(z.string().regex(/^\d{4}$/), z.number().int().min(1).max(1000)).default({}),
 });

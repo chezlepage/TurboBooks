@@ -228,6 +228,39 @@ export interface KindleSettings {
   email: string | null;
 }
 
+export interface TtsVoice {
+  id: string;
+  label: string;
+  accent: 'US' | 'UK';
+  gender: 'female' | 'male';
+  featured: boolean;
+}
+
+export interface Conversion {
+  id: number;
+  ebookId: number | null;
+  title: string;
+  voice: string;
+  multiVoice: boolean;
+  status: 'queued' | 'reading' | 'casting' | 'annotating' | 'voicing' | 'done' | 'failed' | 'canceled';
+  progress: number;
+  detail: string | null;
+  costUsd: number;
+  audioBookId: number | null;
+  error: string | null;
+}
+
+export interface ConvertEstimate {
+  words: number;
+  chapters: number;
+  quotes: number;
+  audioHours: number;
+  costLow: number;
+  costHigh: number;
+  monthSpend: number;
+  budget: number;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -291,6 +324,15 @@ export const api = {
     request('PATCH', `/api/shelf/${id}`, patch),
   removeShelfItem: (id: number) => request('DELETE', `/api/shelf/${id}`),
   removeFromLibrary: (id: number) => request('DELETE', `/api/books/${id}/library`),
+  convertStatus: () =>
+    request<{ enabled: boolean; reason?: string; monthSpend?: number; budget?: number }>('GET', '/api/convert/status'),
+  ttsVoices: () => request<{ voices: TtsVoice[] }>('GET', '/api/convert/voices'),
+  convertEstimate: (bookId: number, multiVoice: boolean) =>
+    request<{ estimate: ConvertEstimate }>('POST', `/api/books/${bookId}/convert/estimate`, { multiVoice }),
+  startConversion: (bookId: number, voice: string, multiVoice: boolean) =>
+    request<{ conversion: Conversion }>('POST', `/api/books/${bookId}/convert`, { voice, multiVoice }),
+  bookConversion: (bookId: number) => request<{ conversion: Conversion | null }>('GET', `/api/books/${bookId}/convert`),
+  cancelConversion: (id: number) => request('DELETE', `/api/convert/${id}`),
   /** Admin: files on the server nobody has added yet. */
   unclaimedBooks: () => request<{ books: Book[] }>('GET', '/api/books/unclaimed'),
 

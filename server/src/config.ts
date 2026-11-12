@@ -46,6 +46,12 @@ export const config = {
   smtpPass: env.SMTP_PASS ?? '',
   /** The address Kindle users add to Amazon's approved sender list. Defaults to SMTP_USER. */
   smtpFrom: env.SMTP_FROM || env.SMTP_USER || '',
+  /** Ebook → audiobook: Claude API key (text prep), Kokoro TTS URL, monthly Claude spend cap. */
+  anthropicApiKey: env.ANTHROPIC_API_KEY ?? '',
+  kokoroUrl: (env.KOKORO_URL ?? 'http://kokoro:8880').replace(/\/+$/, ''),
+  convertMonthlyBudgetUsd: Number(env.CONVERT_MONTHLY_BUDGET_USD ?? 100),
+  /** Use the Batch API (half price, usually done within the hour). Off = direct calls, full price, faster. */
+  convertUseBatch: (env.CONVERT_USE_BATCH ?? 'true') !== 'false',
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });

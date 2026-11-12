@@ -21,6 +21,8 @@ export interface Prefs {
   shownBooks: number[];
   /** Yearly reading goals, e.g. { "2026": 20 }. */
   readingGoals: Record<string, number>;
+  /** Last narrator voice picked for ebook → audiobook. */
+  ttsVoice: string;
 }
 
 const KEY = 'tb.prefs';
@@ -34,6 +36,7 @@ export const DEFAULT_PREFS: Prefs = {
   privateByDefault: false,
   shownBooks: [],
   readingGoals: {},
+  ttsVoice: 'af_heart',
 };
 
 /** Is this book hidden from others on my profile? */

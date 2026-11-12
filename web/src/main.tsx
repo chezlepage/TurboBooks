@@ -9,6 +9,7 @@ import './styles-v4.css';
 import './styles-privacy.css';
 import './styles-shelf.css';
 import './styles-v5.css';
+import './styles-convert.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -19,6 +19,8 @@ import { kindleRoutes } from './routes/kindle.js';
 import { prefsRoutes } from './routes/prefs.js';
 import { profileRoutes } from './routes/profiles.js';
 import { shelfRoutes } from './routes/shelf.js';
+import { convertRoutes } from './routes/convert.js';
+import { resumeConversions } from './lib/convert/jobs.js';
 import { requestRoutes } from './routes/requests.js';
 
 const app = Fastify({
@@ -59,6 +61,7 @@ await app.register(kindleRoutes);
 await app.register(prefsRoutes);
 await app.register(profileRoutes);
 await app.register(shelfRoutes);
+await app.register(convertRoutes);
 await app.register(requestRoutes);
 
 // Serve the built web app, with SPA fallback to index.html.
@@ -92,7 +95,7 @@ setInterval(purgeExpiredSessions, 6 * 60 * 60 * 1000).unref();
 await app.listen({ port: config.port, host: config.host });
 console.log(`TurboBooks listening on ${config.host}:${config.port}`);
 
-void scanLibrary().then(resumeImports);
+void scanLibrary().then(resumeImports).then(resumeConversions);
 watchLibrary();
 if (config.scanIntervalMinutes > 0) {
   setInterval(() => void scanLibrary(), config.scanIntervalMinutes * 60 * 1000).unref();

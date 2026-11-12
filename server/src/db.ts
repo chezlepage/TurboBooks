@@ -202,6 +202,27 @@ const migrations: string[] = [
   UPDATE books SET ever_owned = 1
     WHERE id IN (SELECT book_id FROM library_entries) OR id IN (SELECT book_id FROM progress);
   `,
+  // v11: ebook → audiobook conversions (Claude prepares the text, Kokoro reads it).
+  `
+  CREATE TABLE conversions (
+    id            INTEGER PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ebook_id      INTEGER REFERENCES books(id) ON DELETE SET NULL,
+    title         TEXT NOT NULL,
+    voice         TEXT NOT NULL,
+    multi_voice   INTEGER NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL,             -- queued | reading | casting | annotating | voicing | done | failed | canceled
+    progress      REAL NOT NULL DEFAULT 0,
+    detail        TEXT,
+    batch_id      TEXT,
+    cost_usd      REAL NOT NULL DEFAULT 0,
+    audio_book_id INTEGER REFERENCES books(id) ON DELETE SET NULL,
+    error         TEXT,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+  );
+  CREATE INDEX conversions_user ON conversions(user_id, ebook_id);
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;
