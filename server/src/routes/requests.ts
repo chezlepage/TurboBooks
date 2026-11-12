@@ -111,6 +111,14 @@ export async function requestRoutes(app: FastifyInstance) {
     return {
       releases: search_results
         .filter((r) => r.downloadable && !r.blocklisted)
+        // Dead torrents (0 seeders) last; otherwise best match first, then most seeded.
+        // Direct downloads have no seeder count (null) and are never treated as dead.
+        .sort(
+          (x, y) =>
+            Number(x.seeders === 0) - Number(y.seeders === 0) ||
+            (y.confidence_score ?? 0) - (x.confidence_score ?? 0) ||
+            (y.seeders ?? 0) - (x.seeders ?? 0),
+        )
         .map((r) => ({
           id: r.id,
           title: r.title,
