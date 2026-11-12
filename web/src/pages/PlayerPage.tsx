@@ -15,6 +15,7 @@ import {
   PlayIcon,
   PrevIcon,
 } from '../components/Icons';
+import { ChangeVoiceSheet } from '../components/ChangeVoiceSheet';
 import { ChaptersSheet } from '../components/ChaptersSheet';
 import { SleepSheet } from '../components/SleepSheet';
 import { SPEEDS, chapterAt, useClock, usePlayer } from '../player/PlayerContext';
@@ -26,6 +27,7 @@ export function PlayerPage() {
   const [sleepOpen, setSleepOpen] = useState(false);
   const [night, setNight] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
+  const [voicesOpen, setVoicesOpen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const { book } = player;
 
@@ -177,10 +179,16 @@ export function PlayerPage() {
           <MoonIcon size={18} />
           {player.sleep && sleepRemaining !== null ? formatTime(sleepRemaining) : 'Sleep'}
         </button>
+        {book.source === 'tts' && (
+          <button className={`pill ${player.changingVoice ? 'pill-active' : ''}`} onClick={() => setVoicesOpen(true)}>
+            {player.changingVoice ? 'Re-recording…' : 'Voices'}
+          </button>
+        )}
       </div>
 
       {sleepOpen && <SleepSheet onClose={() => setSleepOpen(false)} />}
       {chaptersOpen && <ChaptersSheet onClose={() => setChaptersOpen(false)} />}
+      {voicesOpen && <ChangeVoiceSheet onClose={() => setVoicesOpen(false)} />}
 
       {night && (
         <div className="night" role="dialog" aria-label="Night screen">

@@ -94,10 +94,10 @@ function applyPronunciations(text: string, pron: { text: string; say: string }[]
   return out;
 }
 
-/** Picks a voice for every cast member: same accent as the narrator where possible, never the narrator's own voice. */
 /** Novelty voices that shouldn't be picked automatically for characters. */
 const NOVELTY = /santa|_inno$/;
 
+/** Picks a voice for every cast member: same accent as the narrator where possible, never the narrator's own voice. */
 export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]): Map<string, string> {
   const accent = narrator.startsWith('b') ? 'UK' : 'US';
   const usable = voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id));
@@ -124,9 +124,12 @@ export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]
   }
   // One-off characters: a voice in the narrator's accent, taken from the end of the list so it's
   // the least likely to collide with a main character.
+  const used = new Set(map.values());
   const minor = (gender: 'female' | 'male', all: string[]) => {
     const same = sameAccent(gender);
-    return same.length ? same[same.length - 1] : all[all.length - 1];
+    // From the end of the narrator's accent first (least likely to be a main character's), then any accent.
+    const free = [...[...same].reverse(), ...[...all].reverse()].find((v) => !used.has(v));
+    return free ?? (same.length ? same[same.length - 1] : all[all.length - 1]);
   };
   if (female.length) map.set('minor_female', minor('female', female));
   if (male.length) map.set('minor_male', minor('male', male));
@@ -134,48 +137,75 @@ export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]
   return map;
 }
 
-/** Synthesizes one chapter to MP3. `onProgress` gets 0..1. */
+/** Someone other than the narrator speaking, in seconds from the start of the chapter's MP3. */
+export interface Span {
+  part: string;
+  start: number;
+  end: number;
+}
+
+const seconds = (bytes: number) => bytes / 2 / SAMPLE_RATE;
+
+/**
+ * Synthesizes one chapter to MP3. `onProgress` gets 0..1. Returns when each character speaks,
+ * so a listener can later change one voice without seeing the rest of the cast.
+ */
 export async function voiceChapter(opts: {
   chapter: SegChapter;
   notes: ChapterNotes[];
   narrator: string;
+  /** Part (character name, minor slot, "narrator") → voice id. */
   characterVoices: Map<string, string> | null;
   outFile: string;
   onProgress?: (fraction: number) => void;
   shouldStop?: () => boolean;
-}): Promise<void> {
+}): Promise<Span[]> {
   const skip = new Set(opts.notes.flatMap((n) => n.skip_paragraphs));
   const pron = opts.notes.flatMap((n) => n.pronounce);
   const speakers = new Map(opts.notes.flatMap((n) => n.speakers).map((s) => [s.q, s.speaker]));
-  const voiceFor = (q?: number) => {
-    if (!opts.characterVoices || q === undefined) return opts.narrator;
+  const partFor = (q?: number) => {
+    if (!opts.characterVoices || q === undefined) return 'narrator';
     const who = speakers.get(q);
-    return (who && opts.characterVoices.get(who)) ?? opts.narrator;
+    return who && who !== 'narrator' && opts.characterVoices.has(who) ? who : 'narrator';
   };
+  const voiceOf = (part: string) => (part === 'narrator' ? opts.narrator : (opts.characterVoices?.get(part) ?? opts.narrator));
 
-  const pcm: Buffer[] = [await speak(applyPronunciations(opts.chapter.title, pron), opts.narrator), silence(900)];
+  const pcm: Buffer[] = [];
+  let bytes = 0;
+  const push = (b: Buffer) => {
+    pcm.push(b);
+    bytes += b.length;
+  };
+  const spans: Span[] = [];
+
+  push(await speak(applyPronunciations(opts.chapter.title, pron), opts.narrator));
+  push(silence(900));
   const paras = opts.chapter.paragraphs;
   for (let i = 0; i < paras.length; i++) {
     if (opts.shouldStop?.()) throw new Error('canceled');
     if (skip.has(i)) continue;
-    // Merge neighbouring segments that use the same voice into one request.
-    const runs: { voice: string; text: string }[] = [];
+    // Merge neighbouring segments spoken by the same part into one run.
+    const runs: { part: string; text: string }[] = [];
     for (const seg of paras[i]) {
-      const voice = seg.kind === 'quote' ? voiceFor(seg.q) : opts.narrator;
+      const part = seg.kind === 'quote' ? partFor(seg.q) : 'narrator';
       const last = runs[runs.length - 1];
-      if (last && last.voice === voice) last.text += ` ${seg.text}`;
-      else runs.push({ voice, text: seg.text });
+      if (last && last.part === part) last.text += ` ${seg.text}`;
+      else runs.push({ part, text: seg.text });
     }
     for (const run of runs) {
+      const start = seconds(bytes);
       for (const sentence of sentences(applyPronunciations(run.text, pron))) {
-        pcm.push(await speak(sentence, run.voice), silence(90));
+        push(await speak(sentence, voiceOf(run.part)));
+        push(silence(90));
       }
+      if (run.part !== 'narrator') spans.push({ part: run.part, start, end: seconds(bytes) });
     }
-    pcm.push(silence(380));
+    push(silence(380));
     opts.onProgress?.((i + 1) / paras.length);
   }
-  pcm.push(silence(1200));
+  push(silence(1200));
   await encodeMp3(Buffer.concat(pcm), opts.outFile);
+  return spans;
 }
 
 async function encodeMp3(raw: Buffer, outFile: string): Promise<void> {

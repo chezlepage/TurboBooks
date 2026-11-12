@@ -242,12 +242,33 @@ export interface Conversion {
   title: string;
   voice: string;
   multiVoice: boolean;
-  status: 'queued' | 'reading' | 'casting' | 'annotating' | 'voicing' | 'done' | 'failed' | 'canceled';
+  status: 'queued' | 'reading' | 'casting' | 'annotating' | 'needs_voices' | 'voicing' | 'revoicing' | 'done' | 'failed' | 'canceled';
+  voiceMode: VoiceMode;
+  /** Manual mode: Claude's cast list is ready, voices can be picked. */
+  castReady: boolean;
+  voicesPicked: boolean;
   progress: number;
   detail: string | null;
   costUsd: number;
   audioBookId: number | null;
   error: string | null;
+}
+
+export type VoiceMode = 'auto' | 'manual';
+
+export interface ConvertCast {
+  narrator: string;
+  cast: { name: string; gender: 'female' | 'male' | 'unknown'; age: string }[];
+  /** Automatic pick for every part (character names, minor_female, minor_male, narrator). */
+  suggested: Record<string, string>;
+  picked: Record<string, string>;
+}
+
+export interface HeardVoices {
+  parts: { part: string; label: string; gender: 'female' | 'male' | 'unknown' | null; voice: string }[];
+  lastSpeaker: string | null;
+  /** Track indexes still being re-recorded with a new voice. */
+  pendingTracks: number[];
 }
 
 export interface ConvertEstimate {
@@ -329,10 +350,17 @@ export const api = {
   ttsVoices: () => request<{ voices: TtsVoice[] }>('GET', '/api/convert/voices'),
   convertEstimate: (bookId: number, multiVoice: boolean) =>
     request<{ estimate: ConvertEstimate }>('POST', `/api/books/${bookId}/convert/estimate`, { multiVoice }),
-  startConversion: (bookId: number, voice: string, multiVoice: boolean) =>
-    request<{ conversion: Conversion }>('POST', `/api/books/${bookId}/convert`, { voice, multiVoice }),
+  startConversion: (bookId: number, voice: string, multiVoice: boolean, voiceMode: VoiceMode = 'auto') =>
+    request<{ conversion: Conversion }>('POST', `/api/books/${bookId}/convert`, { voice, multiVoice, voiceMode }),
   bookConversion: (bookId: number) => request<{ conversion: Conversion | null }>('GET', `/api/books/${bookId}/convert`),
   cancelConversion: (id: number) => request('DELETE', `/api/convert/${id}`),
+  convertCast: (id: number) => request<ConvertCast>('GET', `/api/convert/${id}/cast`),
+  setConvertVoices: (id: number, voices: Record<string, string>) =>
+    request<{ conversion: Conversion }>('PUT', `/api/convert/${id}/voices`, { voices }),
+  bookVoices: (bookId: number, position: number) =>
+    request<HeardVoices>('GET', `/api/books/${bookId}/voices?position=${Math.floor(position)}`),
+  changeBookVoice: (bookId: number, part: string, voice: string, position: number) =>
+    request<{ ok: true }>('PUT', `/api/books/${bookId}/voices`, { part, voice, position }),
   /** Admin: files on the server nobody has added yet. */
   unclaimedBooks: () => request<{ books: Book[] }>('GET', '/api/books/unclaimed'),
 
@@ -388,7 +416,8 @@ export const api = {
 };
 
 export const coverUrl = (book: { id: number; hasCover: boolean }) => (book.hasCover ? `/api/books/${book.id}/cover` : null);
-export const streamUrl = (trackId: number) => `/api/tracks/${trackId}/stream`;
+/** `version` changes when the file does (e.g. re-recorded with a new voice), so a cached copy is never reused. */
+export const streamUrl = (trackId: number, version?: number) => `/api/tracks/${trackId}/stream${version ? `?v=${version}` : ''}`;
 export const ebookFileUrl = (bookId: number) => `/api/books/${bookId}/file`;
 
 /** Fire-and-forget progress save that survives the page being closed. */

@@ -7,10 +7,15 @@ import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
 import {
   cancelConversion,
+  changeVoice,
+  castFor,
+  castReady,
   checkEligible,
   conversionsEnabled,
   estimateFor,
+  heardVoices,
   monthSpend,
+  setVoiceMap,
   startConversion,
 } from '../lib/convert/jobs.js';
 import type { ConversionRow } from '../lib/convert/jobs.js';
@@ -18,7 +23,13 @@ import { listVoices, speak } from '../lib/convert/tts.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const voiceParam = z.object({ voice: z.string().regex(/^[a-z]{2}_[a-z0-9_]{1,40}$/) });
-const startBody = z.object({ voice: z.string().max(60), multiVoice: z.boolean().default(false) });
+const startBody = z.object({
+  voice: z.string().max(60),
+  multiVoice: z.boolean().default(false),
+  voiceMode: z.enum(['auto', 'manual']).default('auto'),
+});
+const changeBody = z.object({ part: z.string().max(200), voice: z.string().max(60), position: z.number().min(0).default(0) });
+const picksBody = z.object({ voices: z.record(z.string().max(200), z.string().max(60)) });
 
 /** Short original line used to preview voices. */
 const SAMPLE_TEXT =
@@ -30,6 +41,9 @@ const toConversion = (r: ConversionRow) => ({
   title: r.title,
   voice: r.voice,
   multiVoice: r.multi_voice === 1,
+  voiceMode: r.voice_mode,
+  castReady: castReady(r),
+  voicesPicked: r.voice_map !== null,
   status: r.status,
   progress: r.progress,
   detail: r.detail,
@@ -90,7 +104,7 @@ export async function convertRoutes(app: FastifyInstance) {
     const body = startBody.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: 'Pick a voice' });
     try {
-      return { conversion: toConversion(await startConversion(request.user!.id, id, body.data.voice, body.data.multiVoice)) };
+      return { conversion: toConversion(await startConversion(request.user!.id, id, body.data.voice, body.data.multiVoice, body.data.voiceMode)) };
     } catch (err) {
       const e = err as Error & { statusCode?: number };
       return reply.code(e.statusCode ?? 500).send({ error: e.message });
@@ -111,6 +125,51 @@ export async function convertRoutes(app: FastifyInstance) {
       db.prepare('SELECT * FROM conversions WHERE user_id = ? ORDER BY id DESC LIMIT 30').all(request.user!.id) as ConversionRow[]
     ).map(toConversion),
   }));
+
+  /** Manual-voice conversions: who speaks (this is the part that can spoil the book), with suggestions. */
+  app.get('/api/convert/:id/cast', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const cast = await castFor(request.user!.id, id);
+    if (!cast) return reply.code(404).send({ error: 'No cast list for this audiobook yet' });
+    return cast;
+  });
+
+  app.put('/api/convert/:id/voices', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const body = picksBody.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: 'Invalid voices' });
+    try {
+      const row = await setVoiceMap(request.user!.id, id, body.data.voices);
+      if (!row) return reply.code(404).send({ error: 'This audiobook is not waiting for voices' });
+      return { conversion: toConversion(row) };
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.code(e.statusCode ?? 500).send({ error: e.message });
+    }
+  });
+
+  /** While listening: the voices heard so far in this audiobook (never later ones), to change one. */
+  app.get('/api/books/:id/voices', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const { position } = z.object({ position: z.coerce.number().min(0).default(0) }).parse(request.query);
+    const heard = await heardVoices(request.user!.id, id, position).catch(() => null);
+    if (!heard) return reply.code(404).send({ error: 'Voices can only be changed on audiobooks made here' });
+    return heard;
+  });
+
+  app.put('/api/books/:id/voices', { config: { rateLimit: { max: 30, timeWindow: '1 hour' } } }, async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const body = changeBody.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: 'Pick a voice' });
+    try {
+      const ok = await changeVoice(request.user!.id, id, body.data.part, body.data.voice, body.data.position);
+      if (!ok) return reply.code(404).send({ error: 'Voices can only be changed on audiobooks made here' });
+      return { ok: true };
+    } catch (err) {
+      const e = err as Error & { statusCode?: number };
+      return reply.code(e.statusCode ?? 500).send({ error: e.message });
+    }
+  });
 
   app.delete('/api/convert/:id', async (request, reply) => {
     const { id } = idParam.parse(request.params);

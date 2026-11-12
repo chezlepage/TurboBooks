@@ -55,6 +55,9 @@ interface SleepState {
   stopAt: number;
 }
 
+/** Changes when any audio file of the book changes (track ids can be reused after a rescan, durations differ). */
+const trackSignature = (b: BookDetail) => b.tracks.map((t) => `${t.id}:${t.duration}`).join(',');
+
 export function chapterAt(book: BookDetail | null, position: number): Chapter | null {
   if (!book || book.chapters.length === 0) return null;
   let found = book.chapters[0];
@@ -93,6 +96,11 @@ interface PlayerApi {
   jumpToSleepMark: () => void;
   dismissSleepMark: () => void;
   close: () => void;
+  /** Re-fetches the open book after its audio changed, keeping the listener's place. */
+  reload: () => Promise<void>;
+  /** Start following a voice change: re-recorded chapters are picked up as they're ready. */
+  watchVoiceChange: () => void;
+  changingVoice: boolean;
 }
 
 interface Clock {
@@ -183,7 +191,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const track = b.tracks[idx];
     trackIdxRef.current = idx;
     pendingSeekRef.current = Math.max(0, offset);
-    audio.src = streamUrl(track.id);
+    audio.src = streamUrl(track.id, Math.round(track.duration * 1000));
     audio.defaultPlaybackRate = rateRef.current;
     audio.playbackRate = rateRef.current;
     audio.load();
@@ -632,8 +640,64 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book, playing, rate, Math.floor(clock.position / 15)]);
 
+  // ---- voice changes (made-here audiobooks) ---------------------------------
+  /**
+   * Re-fetches the book after its files changed (a chapter re-recorded with a new voice) and keeps
+   * the listener at the same spot in the same chapter, playing if it was.
+   */
+  const reload = useCallback(async () => {
+    const b = bookRef.current;
+    const audio = audioRef.current;
+    if (!b || !audio) return;
+    const { book: fresh } = await api.book(b.id);
+    if (bookRef.current?.id !== b.id || fresh.tracks.length !== b.tracks.length) return;
+    const pos = currentPosition();
+    const i = trackIndexFor(b, pos);
+    const old = b.tracks[i];
+    const frac = old.duration > 0 ? Math.min(1, Math.max(0, (pos - old.start) / old.duration)) : 0;
+    const nt = fresh.tracks[i];
+    const newPos = nt.start + frac * nt.duration;
+    const wasPlaying = !audio.paused;
+    bookRef.current = fresh;
+    setBook(fresh);
+    lastSavedPosRef.current = newPos;
+    loadTrack(i, newPos - nt.start, wasPlaying);
+    setClock((c) => ({ ...c, position: newPos }));
+  }, [currentPosition, loadTrack]);
+
+  // While a voice change is being recorded, pick up each re-recorded chapter as it lands.
+  const [voiceChangeFor, setVoiceChangeFor] = useState<number | null>(null);
+  const watchVoiceChange = useCallback(() => setVoiceChangeFor(bookRef.current?.id ?? null), []);
+  useEffect(() => {
+    if (voiceChangeFor === null) return;
+    let stop = false;
+    const tick = async () => {
+      const b = bookRef.current;
+      if (!b || b.id !== voiceChangeFor) return setVoiceChangeFor(null);
+      try {
+        // Pending first: a chapter is swapped in before it leaves the list, so "nothing pending"
+        // means the book fetched after it is final.
+        const { pendingTracks } = await api.bookVoices(b.id, currentPosition());
+        const { book: fresh } = await api.book(b.id);
+        if (stop) return;
+        if (trackSignature(fresh) !== trackSignature(b)) await reload();
+        if (pendingTracks.length === 0) setVoiceChangeFor(null);
+      } catch {
+        /* try again next tick */
+      }
+    };
+    const t = window.setInterval(() => void tick(), 8000);
+    return () => {
+      stop = true;
+      window.clearInterval(t);
+    };
+  }, [voiceChangeFor, reload, currentPosition]);
+
   const value = useMemo<PlayerApi>(
     () => ({
+      reload,
+      watchVoiceChange,
+      changingVoice: voiceChangeFor !== null,
       book,
       playing,
       loading,
@@ -656,7 +720,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       dismissSleepMark,
       close,
     }),
-    [book, playing, loading, error, rate, sleepKind, open, play, pause, toggle, seek, skip, nextChapter, prevChapter, setRate, setSleep, addSleepMinutes, sleepMark, jumpToSleepMark, dismissSleepMark, close],
+    [book, playing, loading, error, rate, sleepKind, open, play, pause, toggle, seek, skip, nextChapter, prevChapter, setRate, setSleep, addSleepMinutes, sleepMark, jumpToSleepMark, dismissSleepMark, close, reload, watchVoiceChange, voiceChangeFor],
   );
 
   return (

@@ -223,6 +223,11 @@ const migrations: string[] = [
   );
   CREATE INDEX conversions_user ON conversions(user_id, ebook_id);
   `,
+  // v12: character voices picked automatically (no spoilers) or by the user from the cast list.
+  `
+  ALTER TABLE conversions ADD COLUMN voice_mode TEXT NOT NULL DEFAULT 'auto';
+  ALTER TABLE conversions ADD COLUMN voice_map TEXT;
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

@@ -91,3 +91,86 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Character voices: automatic vs manual, cast picker, change-a-voice sheet. */
+.convert-multi .privacy-toggle {
+  margin: 0;
+}
+.voice-mode {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+.voice-mode-opt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.voice-mode-opt.active {
+  border-color: var(--accent-dim);
+  background: rgba(242, 180, 90, 0.07);
+}
+.voice-mode-opt input {
+  width: auto;
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+.voice-mode-opt > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.convert-card.waiting {
+  border-color: var(--accent-dim);
+}
+.convert-cast-btn {
+  margin-top: 0.6rem;
+}
+.cast-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.4rem 0 0.8rem;
+  display: grid;
+  gap: 0.45rem;
+}
+.cast-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.cast-row.active {
+  border-color: var(--accent-dim);
+}
+.cast-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cast-edit {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.voice-select {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.voice-select select {
+  flex: 1;
+  min-width: 0;
+}
