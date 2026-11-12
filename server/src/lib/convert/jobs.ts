@@ -66,7 +66,7 @@ export function monthSpend(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Eligibility: the user's own copy of a public-domain or self-supplied ebook.
+// Eligibility: any ebook in the user's own library (Discover, own files or Requests).
 // ---------------------------------------------------------------------------
 
 interface EbookRow {
@@ -86,11 +86,6 @@ export function checkEligible(userId: number, ebookId: number): { ok: true; book
     | undefined;
   if (!book || !inLibrary(userId, ebookId)) return { ok: false, error: 'Book not found' };
   if (book.kind !== 'ebook') return { ok: false, error: 'Only ebooks can be turned into audiobooks' };
-  // Books delivered through Request/Shelfarr aren't eligible: we can't vouch for where they came from.
-  const rel = path.relative(config.libraryDir, book.path).split(path.sep);
-  if (rel[0]?.toLowerCase() === 'shelfarr') {
-    return { ok: false, error: 'Books that came in through Requests can’t be converted. Public-domain ebooks from Discover and your own files can.' };
-  }
   return { ok: true, book };
 }
 
