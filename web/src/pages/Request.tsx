@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import type { Edition, Release, WishRequest, WishResult } from '../api';
+import type { BookLanguage, Edition, Release, WishRequest, WishResult } from '../api';
+import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
 import {
   BookOpenIcon,
   CheckIcon,
   DownloadIcon,
+  GlobeIcon,
   HeadphonesIcon,
   ImagesIcon,
   RetryIcon,
@@ -56,6 +58,23 @@ function timeAgo(iso: string): string {
 
 const sameBook = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+/** The book language each person last picked, remembered on this device. */
+const langKey = (userId: number | undefined) => `tb.requestLang.${userId ?? 0}`;
+function loadLang(userId: number | undefined): string {
+  try {
+    return localStorage.getItem(langKey(userId)) || 'en';
+  } catch {
+    return 'en';
+  }
+}
+function saveLang(userId: number | undefined, lang: string) {
+  try {
+    localStorage.setItem(langKey(userId), lang);
+  } catch {
+    /* private mode: just don't remember */
+  }
+}
+
 function TypeTag({ type }: { type: string }) {
   const audio = type === 'audiobook';
   return (
@@ -94,11 +113,15 @@ function Sheet({ label, onClose, children }: { label: string; onClose: () => voi
 /** Pick the cover art to use for a requested book from its editions. */
 function CoverSheet({
   result,
+  lang,
+  langName,
   selected,
   onPick,
   onClose,
 }: {
   result: WishResult;
+  lang: string;
+  langName: string;
   selected: string | null;
   onPick: (url: string) => void;
   onClose: () => void;
@@ -108,10 +131,10 @@ function CoverSheet({
 
   useEffect(() => {
     api
-      .wishlistEditions(result.workId)
+      .wishlistEditions(result.workId, lang)
       .then((r) => setEditions(r.editions))
       .catch(() => setFailed(true));
-  }, [result.workId]);
+  }, [result.workId, lang]);
 
   return (
     <Sheet label="Choose a cover" onClose={onClose}>
@@ -126,7 +149,7 @@ function CoverSheet({
           ))}
         </div>
       ) : editions.length === 0 ? (
-        <p className="muted">No other covers found for this book.</p>
+        <p className="muted">No {langName} editions with a cover found for this book.</p>
       ) : (
         <div className="rq-cover-grid" role="listbox" aria-label="Covers">
           {editions.map((e) => {
@@ -280,6 +303,7 @@ function RequestCard({
         <div className="rq-card-title">{r.title}</div>
         <div className="rq-card-meta">
           <TypeTag type={r.bookType} />
+          {r.language && r.language !== 'en' && <span className="rq-type rq-lang-tag">{r.language.toUpperCase()}</span>}
           {r.author && <span className="muted">{r.author}</span>}
         </div>
         <div className={`rq-status ${tone}`}>
@@ -392,7 +416,15 @@ function ResultCard({
 }
 
 export function Request() {
+  const { user } = useAuth();
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [languages, setLanguages] = useState<BookLanguage[]>([{ code: 'en', name: 'English' }]);
+  const [lang, setLangState] = useState(() => loadLang(user?.id));
+  const setLang = (code: string) => {
+    setLangState(code);
+    saveLang(user?.id, code);
+  };
+  const langName = languages.find((l) => l.code === lang)?.name ?? lang;
   const [params] = useSearchParams();
   const [query, setQuery] = useState(() => params.get('q') ?? '');
   const [results, setResults] = useState<WishResult[] | null>(null);
@@ -416,7 +448,10 @@ export function Request() {
   useEffect(() => {
     api
       .wishlistStatus()
-      .then((r) => setEnabled(r.enabled))
+      .then((r) => {
+        setEnabled(r.enabled);
+        if (r.languages?.length) setLanguages(r.languages);
+      })
       .catch(() => setEnabled(false));
   }, []);
 
@@ -456,9 +491,13 @@ export function Request() {
 
   const request = async (r: WishResult, type: BookType) => {
     try {
-      const res = await api.wishlistRequest(r, type, covers[r.workId]);
+      const res = await api.wishlistRequest(r, type, covers[r.workId], lang);
       setSent((s) => new Set(s).add(`${r.workId}:${type}`));
-      toast(res.addedToLibrary ? 'Already on the server: added to your library' : `Requested. Follow it in My requests.`);
+      toast(
+        res.addedToLibrary
+          ? 'Already on the server: added to your library'
+          : `Requested${lang === 'en' ? '' : ` in ${langName}`}. Follow it in My requests.`,
+      );
       refresh();
     } catch (err) {
       toast((err as Error).message);
@@ -572,6 +611,18 @@ export function Request() {
 
       {tab === 'find' && (
         <div role="tabpanel" aria-label="Find">
+          <label className="rq-lang">
+            <GlobeIcon size={16} />
+            <span>Book language</span>
+            <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Book language">
+              {languages.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           {picks.length > 0 && (
             <button className="rq-banner" onClick={() => setTab('mine')}>
               <DownloadIcon size={18} />
@@ -625,7 +676,9 @@ export function Request() {
             <div className="rq-empty">
               <BookOpenIcon size={28} />
               <p>What would you like to read or listen to?</p>
-              <p className="muted small">Search a title, author or series, then choose audiobook or ebook.</p>
+              <p className="muted small">
+                Search a title, author or series, then choose audiobook or ebook. Copies are found in the book language above.
+              </p>
             </div>
           )}
         </div>
@@ -679,6 +732,8 @@ export function Request() {
       {coverFor && (
         <CoverSheet
           result={coverFor}
+          lang={lang}
+          langName={langName}
           selected={covers[coverFor.workId] ?? null}
           onPick={(url) => setCovers((c) => ({ ...c, [coverFor.workId]: url }))}
           onClose={() => setCoverFor(null)}

@@ -105,13 +105,52 @@ export interface Edition {
   format: string | null;
 }
 
+/**
+ * Book languages Shelfarr can search for (its ReleaseParserService::LANGUAGES), with their
+ * own-language names for the picker and Open Library's MARC codes for edition covers.
+ */
+export const BOOK_LANGUAGES = [
+  { code: 'en', name: 'English', marc: 'eng' },
+  { code: 'fr', name: 'Français', marc: 'fre' },
+  { code: 'es', name: 'Español', marc: 'spa' },
+  { code: 'de', name: 'Deutsch', marc: 'ger' },
+  { code: 'it', name: 'Italiano', marc: 'ita' },
+  { code: 'pt', name: 'Português', marc: 'por' },
+  { code: 'pt-BR', name: 'Português (Brasil)', marc: 'por' },
+  { code: 'nl', name: 'Nederlands', marc: 'dut' },
+  { code: 'sv', name: 'Svenska', marc: 'swe' },
+  { code: 'da', name: 'Dansk', marc: 'dan' },
+  { code: 'no', name: 'Norsk', marc: 'nor' },
+  { code: 'fi', name: 'Suomi', marc: 'fin' },
+  { code: 'pl', name: 'Polski', marc: 'pol' },
+  { code: 'cs', name: 'Čeština', marc: 'cze' },
+  { code: 'hu', name: 'Magyar', marc: 'hun' },
+  { code: 'ro', name: 'Română', marc: 'rum' },
+  { code: 'el', name: 'Ελληνικά', marc: 'gre' },
+  { code: 'bg', name: 'Български', marc: 'bul' },
+  { code: 'uk', name: 'Українська', marc: 'ukr' },
+  { code: 'ru', name: 'Русский', marc: 'rus' },
+  { code: 'tr', name: 'Türkçe', marc: 'tur' },
+  { code: 'ar', name: 'العربية', marc: 'ara' },
+  { code: 'he', name: 'עברית', marc: 'heb' },
+  { code: 'hi', name: 'हिन्दी', marc: 'hin' },
+  { code: 'th', name: 'ไทย', marc: 'tha' },
+  { code: 'vi', name: 'Tiếng Việt', marc: 'vie' },
+  { code: 'zh', name: '中文', marc: 'chi' },
+  { code: 'ja', name: '日本語', marc: 'jpn' },
+  { code: 'ko', name: '한국어', marc: 'kor' },
+] as const;
+export const LANGUAGE_CODES = BOOK_LANGUAGES.map((l) => l.code) as [string, ...string[]];
+
 const editionCache = new Map<string, { at: number; editions: Edition[] }>();
 
-/** Distinct cover images for a work's editions, from Open Library (Shelfarr's search has no edition data). */
-export async function editions(workId: string): Promise<Edition[]> {
+/** Distinct cover images for a work's editions in one language, from Open Library (Shelfarr's search has no edition data). */
+export async function editions(workId: string, lang = 'en'): Promise<Edition[]> {
   const m = /^openlibrary:(OL\d+W)$/.exec(workId);
   if (!m) return [];
-  const hit = editionCache.get(m[1]);
+  const marc = `/languages/${BOOK_LANGUAGES.find((l) => l.code === lang)?.marc ?? 'eng'}`;
+  const key = `${m[1]}:${marc}`;
+  const hit = editionCache.get(key);
   if (hit && Date.now() - hit.at < 60 * 60 * 1000) return hit.editions;
   let data: { entries?: Array<Record<string, unknown>> };
   try {
@@ -130,7 +169,7 @@ export async function editions(workId: string): Promise<Edition[]> {
     const covers = (e.covers as number[] | undefined)?.filter((c) => c > 0) ?? [];
     const langs = (e.languages as Array<{ key: string }> | undefined)?.map((l) => l.key) ?? [];
     if (!covers.length || seen.has(covers[0])) continue;
-    if (langs.length && !langs.includes('/languages/eng')) continue; // English editions only
+    if (langs.length && !langs.includes(marc)) continue; // editions in the chosen language only
     seen.add(covers[0]);
     out.push({
       coverId: covers[0],
@@ -140,6 +179,6 @@ export async function editions(workId: string): Promise<Edition[]> {
     });
     if (out.length >= 30) break;
   }
-  editionCache.set(m[1], { at: Date.now(), editions: out });
+  editionCache.set(key, { at: Date.now(), editions: out });
   return out;
 }

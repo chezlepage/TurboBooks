@@ -191,6 +191,10 @@ const migrations: string[] = [
   );
   CREATE INDEX request_owners_user ON request_owners(user_id);
   `,
+  // v9: the language a book was requested in (Shelfarr searches for copies in that language).
+  `
+  ALTER TABLE request_owners ADD COLUMN language TEXT;
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

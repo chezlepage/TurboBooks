@@ -172,6 +172,14 @@ export interface WishRequest {
   createdAt: string;
   /** Once delivered: the book in your library. */
   bookId: number | null;
+  /** Language the book was requested in (null: Shelfarr's default). */
+  language: string | null;
+}
+
+export interface BookLanguage {
+  code: string;
+  /** In its own language, e.g. "Français". */
+  name: string;
 }
 
 /** A book as it appears on someone's profile. */
@@ -303,11 +311,11 @@ export const api = {
   retryImport: (id: number) => request('POST', `/api/imports/${id}/retry`, {}),
   dismissImport: (id: number) => request('DELETE', `/api/imports/${id}`),
 
-  wishlistStatus: () => request<{ enabled: boolean }>('GET', '/api/wishlist/status'),
+  wishlistStatus: () => request<{ enabled: boolean; languages: BookLanguage[] }>('GET', '/api/wishlist/status'),
   wishlistSearch: (q: string) =>
     request<{ results: WishResult[] }>('GET', `/api/wishlist/search?q=${encodeURIComponent(q)}`),
   wishlist: () => request<{ requests: WishRequest[] }>('GET', '/api/wishlist'),
-  wishlistRequest: (r: WishResult, bookType: 'audiobook' | 'ebook', coverUrl?: string | null) =>
+  wishlistRequest: (r: WishResult, bookType: 'audiobook' | 'ebook', coverUrl?: string | null, language?: string) =>
     request<{ ok: true; addedToLibrary?: number }>('POST', '/api/wishlist', {
       workId: r.workId,
       bookType,
@@ -315,9 +323,13 @@ export const api = {
       author: r.author,
       coverUrl: coverUrl ?? r.coverUrl,
       year: r.year,
+      language,
     }),
-  wishlistEditions: (workId: string) =>
-    request<{ editions: Edition[] }>('GET', `/api/wishlist/editions?workId=${encodeURIComponent(workId)}`),
+  wishlistEditions: (workId: string, lang = 'en') =>
+    request<{ editions: Edition[] }>(
+      'GET',
+      `/api/wishlist/editions?workId=${encodeURIComponent(workId)}&lang=${encodeURIComponent(lang)}`,
+    ),
   wishlistReleases: (id: number) => request<{ releases: Release[] }>('GET', `/api/wishlist/${id}/releases`),
   wishlistGrab: (id: number, releaseId: number) => request('POST', `/api/wishlist/${id}/grab`, { releaseId }),
   wishlistRetry: (id: number) => request('POST', `/api/wishlist/${id}/retry`, {}),
