@@ -1,122 +1,393 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Edition, Release, WishRequest, WishResult } from '../api';
 import { Cover } from '../components/Cover';
+import {
+  BookOpenIcon,
+  CheckIcon,
+  DownloadIcon,
+  HeadphonesIcon,
+  ImagesIcon,
+  RetryIcon,
+  SearchIcon,
+  XIcon,
+} from '../components/Icons';
 import { toast } from '../components/Toast';
+import '../styles-request.css';
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Waiting',
-  searching: 'Searching',
-  found: 'Found a source',
-  downloading: 'Downloading',
-  processing: 'Adding to library',
-  completed: 'Done, appears in your library shortly',
-  not_found: 'Not found',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-};
-const label = (s: string) => STATUS_LABEL[s] ?? s.replace(/_/g, ' ');
+type BookType = 'audiobook' | 'ebook';
+type Tab = 'find' | 'mine';
+
 const IN_FLIGHT = ['pending', 'searching', 'found', 'downloading', 'processing'];
-const RETRYABLE = ['failed', 'not_found'];
+const FAILED = ['failed', 'not_found'];
+
+/** Friendly wording for Shelfarr's statuses. */
+const STATUS_TEXT: Record<string, string> = {
+  pending: 'Waiting in line',
+  searching: 'Looking for a copy',
+  found: 'Found a copy',
+  downloading: 'Downloading',
+  processing: 'Adding to your library',
+  completed: 'In your library',
+  not_found: "Couldn't find a copy",
+  failed: 'Stopped',
+};
+const statusText = (s: string) => STATUS_TEXT[s] ?? s.replace(/_/g, ' ');
+
+const needsPick = (r: WishRequest) => r.needsAttention && IN_FLIGHT.includes(r.status);
 
 /** Indexer titles often contain HTML entities (&ndash;, &oacute;). Decode without executing anything. */
 const decodeEntities = (s: string) => new DOMParser().parseFromString(s, 'text/html').documentElement.textContent ?? s;
 
 const formatSize = (b: number | null) =>
-  b ? (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`) : '';
+  b ? (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`) : null;
 
-/** Strip of cover art for the different editions of a book; tapping one selects it. */
-function EditionStrip({ workId, selected, onPick }: { workId: string; selected: string | null; onPick: (url: string) => void }) {
+function timeAgo(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
+const sameBook = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+function TypeTag({ type }: { type: string }) {
+  const audio = type === 'audiobook';
+  return (
+    <span className="rq-type">
+      {audio ? <HeadphonesIcon size={13} /> : <BookOpenIcon size={13} />}
+      {audio ? 'Audiobook' : 'Ebook'}
+    </span>
+  );
+}
+
+/** Bottom sheet (centered dialog on wide screens). Closes on backdrop tap or Escape. */
+function Sheet({ label, onClose, children }: { label: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = overflow;
+    };
+  }, [onClose]);
+  return (
+    <div className="sheet-backdrop rq-backdrop" onClick={onClose}>
+      <div className="sheet rq-sheet" role="dialog" aria-modal="true" aria-label={label} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        <button className="rq-sheet-close" aria-label="Close" onClick={onClose}>
+          <XIcon size={18} />
+        </button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Pick the cover art to use for a requested book from its editions. */
+function CoverSheet({
+  result,
+  selected,
+  onPick,
+  onClose,
+}: {
+  result: WishResult;
+  selected: string | null;
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
   const [editions, setEditions] = useState<Edition[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     api
-      .wishlistEditions(workId)
+      .wishlistEditions(result.workId)
       .then((r) => setEditions(r.editions))
       .catch(() => setFailed(true));
-  }, [workId]);
+  }, [result.workId]);
 
-  if (failed) return <p className="muted small">Couldn't load other covers.</p>;
-  if (!editions) return <p className="muted small">Loading covers…</p>;
-  if (editions.length === 0) return <p className="muted small">No other covers found for this book.</p>;
   return (
-    <div className="edition-strip" role="listbox" aria-label="Covers">
-      {editions.map((e) => (
-        <button
-          key={e.coverUrl}
-          type="button"
-          role="option"
-          aria-selected={selected === e.coverUrl}
-          className={`edition ${selected === e.coverUrl ? 'edition-active' : ''}`}
-          onClick={() => onPick(e.coverUrl)}
-          title={[e.publisher, e.year, e.format].filter(Boolean).join(' · ')}
-        >
-          <img src={e.thumbUrl} alt="" loading="lazy" />
-          <span className="small muted">{e.year ?? ''}</span>
-        </button>
-      ))}
-    </div>
+    <Sheet label="Choose a cover" onClose={onClose}>
+      <h2 className="rq-sheet-title">Choose a cover</h2>
+      <p className="muted small rq-sheet-sub">{result.title}: pick the edition you like best.</p>
+      {failed ? (
+        <p className="muted">Couldn't load other covers. Try again in a bit.</p>
+      ) : !editions ? (
+        <div className="rq-cover-grid" aria-hidden>
+          {Array.from({ length: 8 }, (_, i) => (
+            <div key={i} className="skeleton rq-cover-option" />
+          ))}
+        </div>
+      ) : editions.length === 0 ? (
+        <p className="muted">No other covers found for this book.</p>
+      ) : (
+        <div className="rq-cover-grid" role="listbox" aria-label="Covers">
+          {editions.map((e) => {
+            const active = (selected ?? result.coverUrl) === e.coverUrl;
+            return (
+              <button
+                key={e.coverUrl}
+                type="button"
+                role="option"
+                aria-selected={active}
+                className={`rq-cover-option ${active ? 'active' : ''}`}
+                onClick={() => {
+                  onPick(e.coverUrl);
+                  onClose();
+                }}
+                title={[e.publisher, e.year, e.format].filter(Boolean).join(' · ')}
+              >
+                <img src={e.thumbUrl} alt={[e.publisher, e.year].filter(Boolean).join(', ') || 'Edition cover'} loading="lazy" />
+                {e.year && <span>{e.year}</span>}
+                {active && (
+                  <span className="rq-cover-check">
+                    <CheckIcon size={14} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Sheet>
   );
 }
 
-/** Lets the user choose which release Shelfarr downloads when it did not pick one itself. */
-function ReleasePicker({ id, onDone, onError }: { id: number; onDone: () => void; onError: (m: string) => void }) {
+/** Lets the user choose which download Shelfarr grabs when it couldn't pick one itself. */
+function ReleaseSheet({ request, onDone, onClose }: { request: WishRequest; onDone: () => void; onClose: () => void }) {
   const [releases, setReleases] = useState<Release[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [grabbing, setGrabbing] = useState<number | null>(null);
 
   useEffect(() => {
     api
-      .wishlistReleases(id)
+      .wishlistReleases(request.id)
       .then((r) => setReleases(r.releases))
-      .catch((e: Error) => {
-        onError(e.message);
-        setReleases([]);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+      .catch((e: Error) => setError(e.message));
+  }, [request.id]);
 
   const grab = async (r: Release) => {
     setGrabbing(r.id);
     try {
-      await api.wishlistGrab(id, r.id);
+      await api.wishlistGrab(request.id, r.id);
+      toast('Downloading now');
       onDone();
     } catch (e) {
-      onError((e as Error).message);
+      setError((e as Error).message);
       setGrabbing(null);
     }
   };
 
-  if (!releases) return <p className="muted small">Loading options…</p>;
-  if (releases.length === 0) return <p className="muted small">No downloadable options.</p>;
   return (
-    <ul className="release-list">
-      {releases.map((r) => (
-        <li key={r.id} className="release">
-          <div className="release-text">
-            <div className="release-title">{decodeEntities(r.title)}</div>
-            <div className="muted small">
-              {r.direct && <span className="badge-direct">Direct download</span>}
-              {[
-                r.source,
-                formatSize(r.sizeBytes),
-                !r.direct && r.seeders != null ? `${r.seeders} seeders` : '',
-                r.language,
-                r.confidence != null ? `${Math.round(r.confidence)}% match` : '',
-              ]
-                .filter(Boolean)
-                .join(' · ')
-                .replace(/^/, r.direct ? ' · ' : '')}
-            </div>
+    <Sheet label="Choose a download" onClose={onClose}>
+      <div className="rq-sheet-book">
+        <Cover src={request.coverUrl} title={request.title} author={request.author} className="rq-sheet-cover" />
+        <div>
+          <h2 className="rq-sheet-title">Choose a download</h2>
+          <p className="muted small">
+            {request.title}
+            {request.author ? ` · ${request.author}` : ''}
+          </p>
+          <TypeTag type={request.bookType} />
+        </div>
+      </div>
+      <p className="muted small rq-sheet-sub">
+        Several copies matched. The best match is first. Direct downloads are usually fastest.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {!releases && !error && (
+        <ul className="rq-releases" aria-hidden>
+          {Array.from({ length: 3 }, (_, i) => (
+            <li key={i} className="rq-release">
+              <div className="rq-release-text">
+                <div className="skeleton skeleton-line" />
+                <div className="skeleton skeleton-line short" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {releases?.length === 0 && <p className="muted">No downloadable copies right now. Try again later.</p>}
+      {releases && releases.length > 0 && (
+        <ul className="rq-releases">
+          {releases.map((r, i) => {
+            const dead = !r.direct && r.seeders === 0;
+            const best = i === 0 && !dead;
+            return (
+              <li key={r.id} className={`rq-release ${best ? 'best' : ''} ${dead ? 'dead' : ''}`}>
+                <div className="rq-release-text">
+                  {best && <span className="rq-best">Best match</span>}
+                  <div className="rq-release-title">{decodeEntities(r.title)}</div>
+                  <div className="rq-release-tags">
+                    {r.direct ? (
+                      <span className="rq-tag good">Direct download</span>
+                    ) : (
+                      r.seeders != null && (
+                        <span className={`rq-tag ${dead ? 'bad' : ''}`}>{dead ? 'No seeders' : `${r.seeders} seeders`}</span>
+                      )
+                    )}
+                    {formatSize(r.sizeBytes) && <span className="rq-tag">{formatSize(r.sizeBytes)}</span>}
+                    {r.confidence != null && <span className="rq-tag">{Math.round(r.confidence)}% match</span>}
+                    {r.language && <span className="rq-tag">{r.language.toUpperCase()}</span>}
+                    {r.source && <span className="rq-source">{r.source}</span>}
+                  </div>
+                </div>
+                <button
+                  className={`btn btn-small ${best ? 'btn-primary' : ''}`}
+                  disabled={grabbing !== null}
+                  onClick={() => grab(r)}
+                  aria-label={`Download ${decodeEntities(r.title)}`}
+                >
+                  {grabbing === r.id ? 'Starting…' : <DownloadIcon size={16} />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Sheet>
+  );
+}
+
+function RequestCard({
+  r,
+  onPick,
+  onRetry,
+  onRemove,
+}: {
+  r: WishRequest;
+  onPick: () => void;
+  onRetry: () => void;
+  onRemove: () => void;
+}) {
+  const running = IN_FLIGHT.includes(r.status);
+  const failed = FAILED.includes(r.status);
+  const done = r.status === 'completed';
+  const pick = needsPick(r);
+  const tone = pick ? 'attention' : done ? 'done' : failed ? 'bad' : 'busy';
+
+  return (
+    <li className={`rq-card ${pick ? 'rq-card-attention' : ''}`}>
+      <Cover src={r.coverUrl} title={r.title} author={r.author} className="rq-card-cover" />
+      <div className="rq-card-body">
+        <div className="rq-card-title">{r.title}</div>
+        <div className="rq-card-meta">
+          <TypeTag type={r.bookType} />
+          {r.author && <span className="muted">{r.author}</span>}
+        </div>
+        <div className={`rq-status ${tone}`}>
+          <span className="rq-dot" />
+          {pick ? 'Pick a download' : done && !r.bookId ? 'Arriving in your library shortly' : statusText(r.status)}
+          <span className="rq-when">· {timeAgo(r.createdAt)}</span>
+        </div>
+        {r.issue && (pick || failed) && <p className="rq-issue">{r.issue}</p>}
+        {running && !pick && <div className="rq-progress" role="progressbar" aria-label={statusText(r.status)} />}
+        {(pick || failed || (done && r.bookId)) && (
+          <div className="rq-card-actions">
+            {pick && (
+              <button className="btn btn-small btn-primary" onClick={onPick}>
+                <DownloadIcon size={16} /> Choose a download
+              </button>
+            )}
+            {failed && (
+              <button className="btn btn-small" onClick={onRetry}>
+                <RetryIcon size={16} /> Try again
+              </button>
+            )}
+            {done && r.bookId && (
+              <Link className="btn btn-small btn-primary" to={`/book/${r.bookId}`}>
+                {r.bookType === 'audiobook' ? <HeadphonesIcon size={16} /> : <BookOpenIcon size={16} />} Open
+              </Link>
+            )}
           </div>
-          <button className="btn btn-small btn-primary" disabled={grabbing !== null} onClick={() => grab(r)}>
-            {grabbing === r.id ? '…' : 'Download'}
+        )}
+      </div>
+      <button
+        className="rq-remove"
+        aria-label={running ? `Cancel request for ${r.title}` : `Remove ${r.title} from the list`}
+        title={running ? 'Cancel request' : 'Remove from list'}
+        onClick={onRemove}
+      >
+        <XIcon size={16} />
+      </button>
+    </li>
+  );
+}
+
+function Group({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="rq-group">
+      <div className="rq-group-head">
+        <h2 className="section-title">{title}</h2>
+        {action}
+      </div>
+      <ul className="rq-cards">{children}</ul>
+    </section>
+  );
+}
+
+function ResultCard({
+  r,
+  cover,
+  requestedTypes,
+  onRequest,
+  onCovers,
+}: {
+  r: WishResult;
+  cover: string | null;
+  requestedTypes: Set<BookType>;
+  onRequest: (type: BookType) => Promise<void>;
+  onCovers: (() => void) | null;
+}) {
+  const [busy, setBusy] = useState<BookType | null>(null);
+  const run = async (t: BookType) => {
+    setBusy(t);
+    try {
+      await onRequest(t);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <li className="rq-result">
+      <div className="rq-result-cover">
+        <Cover src={cover} title={r.title} author={r.author} className="rq-result-img" />
+        {onCovers && (
+          <button className="rq-cover-edit" onClick={onCovers} aria-label={`Choose a cover for ${r.title}`} title="Choose a cover">
+            <ImagesIcon size={14} />
           </button>
-        </li>
-      ))}
-    </ul>
+        )}
+      </div>
+      <div className="rq-result-body">
+        <div className="rq-result-title">{r.title}</div>
+        <div className="rq-result-meta">{[r.author, r.year].filter(Boolean).join(' · ')}</div>
+        {r.series && <div className="rq-result-series">{r.series}</div>}
+        <div className="rq-formats">
+          {(['audiobook', 'ebook'] as const).map((t) => {
+            const done = requestedTypes.has(t);
+            return (
+              <button
+                key={t}
+                className={`rq-format ${done ? 'requested' : ''}`}
+                disabled={done || busy !== null}
+                onClick={() => run(t)}
+                aria-label={done ? `${t} requested` : `Request ${t}`}
+              >
+                {done ? <CheckIcon size={16} /> : t === 'audiobook' ? <HeadphonesIcon size={16} /> : <BookOpenIcon size={16} />}
+                <span>{busy === t ? 'Requesting…' : t === 'audiobook' ? 'Audiobook' : 'Ebook'}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -127,14 +398,13 @@ export function Request() {
   const [results, setResults] = useState<WishResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [requests, setRequests] = useState<WishRequest[]>([]);
-  /** workId:type pairs requested this session, so the button flips immediately. */
+  const [requests, setRequests] = useState<WishRequest[] | null>(null);
+  const [tab, setTab] = useState<Tab>('find');
+  /** workId:type pairs requested this session, so buttons flip immediately. */
   const [sent, setSent] = useState<Set<string>>(new Set());
-  /** Request whose release list is open. */
-  const [picking, setPicking] = useState<number | null>(null);
-  /** Cover chosen per work, and which result has its covers strip open. */
   const [covers, setCovers] = useState<Record<string, string>>({});
-  const [coversOpen, setCoversOpen] = useState<string | null>(null);
+  const [coverFor, setCoverFor] = useState<WishResult | null>(null);
+  const [pickFor, setPickFor] = useState<WishRequest | null>(null);
 
   const refresh = useCallback(() => {
     api
@@ -150,7 +420,8 @@ export function Request() {
       .catch(() => setEnabled(false));
   }, []);
 
-  const busy = requests.some((r) => IN_FLIGHT.includes(r.status));
+  const list = useMemo(() => requests ?? [], [requests]);
+  const busy = list.some((r) => IN_FLIGHT.includes(r.status));
   useEffect(() => {
     if (!enabled) return;
     refresh();
@@ -160,6 +431,7 @@ export function Request() {
 
   const runSearch = async (q: string) => {
     if (q.length < 2) return;
+    setTab('find');
     setSearching(true);
     setError(null);
     try {
@@ -172,6 +444,7 @@ export function Request() {
   };
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    (document.activeElement as HTMLElement | null)?.blur(); // close the phone keyboard
     void runSearch(query.trim());
   };
 
@@ -181,36 +454,46 @@ export function Request() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
-  const request = async (r: WishResult, type: 'audiobook' | 'ebook') => {
-    setError(null);
+  const request = async (r: WishResult, type: BookType) => {
     try {
       const res = await api.wishlistRequest(r, type, covers[r.workId]);
-      if (res.addedToLibrary) toast('Already on the server, added to your library');
       setSent((s) => new Set(s).add(`${r.workId}:${type}`));
+      toast(res.addedToLibrary ? 'Already on the server: added to your library' : `Requested. Follow it in My requests.`);
       refresh();
     } catch (err) {
-      setError((err as Error).message);
+      toast((err as Error).message);
     }
   };
 
-  // Errors also go to a toast: the error line sits at the top of the page, often scrolled out of view.
-  const act = (fn: () => Promise<unknown>, done?: string) => () =>
+  const act = (fn: () => Promise<unknown>, done?: string) =>
     fn()
       .then(() => {
         if (done) toast(done);
         refresh();
       })
-      .catch((e: Error) => {
-        setError(e.message);
-        toast(e.message);
-      });
+      .catch((e: Error) => toast(e.message));
 
-  const cancel = (r: WishRequest) => {
+  const remove = (r: WishRequest) => {
     const running = IN_FLIGHT.includes(r.status);
     if (running && !confirm(`Cancel the request for "${r.title}"?`)) return;
-    // Optimistic: drop it from the list straight away.
-    setRequests((list) => list.filter((x) => x.id !== r.id));
-    act(() => api.wishlistCancel(r.id), running ? 'Request cancelled' : 'Removed from the list')();
+    setRequests((l) => l?.filter((x) => x.id !== r.id) ?? null); // optimistic
+    void act(() => api.wishlistCancel(r.id), running ? 'Request cancelled' : undefined);
+  };
+
+  const clearAll = (items: WishRequest[]) => {
+    const ids = new Set(items.map((r) => r.id));
+    setRequests((l) => l?.filter((x) => !ids.has(x.id)) ?? null);
+    void act(() => Promise.all(items.map((r) => api.wishlistCancel(r.id))));
+  };
+
+  /** Types already requested for a search result: this session, or an open request with the same title. */
+  const requestedTypes = (r: WishResult) => {
+    const set = new Set<BookType>();
+    for (const t of ['audiobook', 'ebook'] as const) {
+      if (sent.has(`${r.workId}:${t}`)) set.add(t);
+      else if (list.some((q) => q.bookType === t && sameBook(q.title, r.title) && !FAILED.includes(q.status))) set.add(t);
+    }
+    return set;
   };
 
   if (enabled === null) return <div className="page" />;
@@ -218,141 +501,198 @@ export function Request() {
     return (
       <div className="page">
         <h1>Request</h1>
-        <p className="muted">
-          Requests are not set up yet. An admin needs to set <code>SHELFARR_URL</code> and <code>SHELFARR_TOKEN</code> in the server's
-          .env.
-        </p>
+        <div className="card">
+          <p>Requests aren't set up on this server yet.</p>
+          <p className="muted small">
+            An admin needs to set <code>SHELFARR_URL</code> and <code>SHELFARR_TOKEN</code> in the server's .env.
+          </p>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="page">
-      <h1>Request</h1>
-      <p className="muted small">
-        Can't find a book? Search any title and request it as an audiobook or ebook. It downloads automatically and shows up in your
-        library.
-      </p>
+  const picks = list.filter(needsPick);
+  const running = list.filter((r) => IN_FLIGHT.includes(r.status) && !needsPick(r));
+  const ready = list.filter((r) => r.status === 'completed');
+  const failed = list.filter((r) => FAILED.includes(r.status));
+  const card = (r: WishRequest) => (
+    <RequestCard
+      key={r.id}
+      r={r}
+      onPick={() => setPickFor(r)}
+      onRetry={() => void act(() => api.wishlistRetry(r.id), 'Trying again')}
+      onRemove={() => remove(r)}
+    />
+  );
 
-      <form className="search-row" onSubmit={submit}>
+  return (
+    <div className="page rq-page">
+      <header className="rq-head">
+        <h1>Request</h1>
+        <p className="muted">Find any book. It downloads by itself and shows up in your library.</p>
+      </header>
+
+      <form className="rq-search" onSubmit={submit} role="search">
+        <SearchIcon size={20} className="rq-search-icon" />
         <input
-          className="search-input"
           type="search"
-          placeholder="Search title or author"
+          enterKeyHint="search"
+          placeholder="Title, author or series"
+          aria-label="Search for a book"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button className="btn btn-primary" disabled={query.trim().length < 2 || searching}>
-          Search
+        {query && (
+          <button
+            type="button"
+            className="rq-search-clear"
+            aria-label="Clear search"
+            onClick={() => {
+              setQuery('');
+              setResults(null);
+            }}
+          >
+            <XIcon size={16} />
+          </button>
+        )}
+        <button className="btn btn-primary rq-search-go" disabled={query.trim().length < 2 || searching}>
+          {searching ? '…' : 'Search'}
         </button>
       </form>
 
-      {error && <p className="error">{error}</p>}
-      {searching && <p className="muted center">Searching…</p>}
+      <div className="rq-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'find'} className={tab === 'find' ? 'active' : ''} onClick={() => setTab('find')}>
+          Find
+        </button>
+        <button role="tab" aria-selected={tab === 'mine'} className={tab === 'mine' ? 'active' : ''} onClick={() => setTab('mine')}>
+          My requests
+          {list.length > 0 && <span className={`rq-count ${picks.length ? 'attention' : ''}`}>{picks.length || list.length}</span>}
+        </button>
+      </div>
 
-      {requests.length > 0 && (
-        <section className="imports">
-          <h2 className="section-title">Your requests</h2>
-          {requests.slice(0, 15).map((r) => (
-            <div key={r.id} className={`import-row ${picking === r.id ? 'import-row-wide' : ''}`}>
-              <Cover src={r.coverUrl} title={r.title} className="request-cover" />
-              <div className="import-text">
-                <div className="import-title">
-                  {r.title} <span className="muted small">({r.bookType})</span>
-                </div>
-                <div className="muted small">
-                  {RETRYABLE.includes(r.status) ? <span className="error">{label(r.status)}</span> : label(r.status)}
-                  {r.needsAttention && r.issue ? ` · ${r.issue}` : ''}
-                </div>
-                {IN_FLIGHT.includes(r.status) && !r.needsAttention && (
-                  <div className="bar">
-                    <div style={{ width: '35%' }} />
+      {tab === 'find' && (
+        <div role="tabpanel" aria-label="Find">
+          {picks.length > 0 && (
+            <button className="rq-banner" onClick={() => setTab('mine')}>
+              <DownloadIcon size={18} />
+              <span>
+                {picks.length === 1 ? `"${picks[0].title}" needs you to pick a download` : `${picks.length} requests need you to pick a download`}
+              </span>
+              <span className="rq-banner-go">Review</span>
+            </button>
+          )}
+
+          {error && <p className="error">{error}</p>}
+
+          {searching && (
+            <ul className="rq-results" aria-hidden>
+              {Array.from({ length: 4 }, (_, i) => (
+                <li key={i} className="rq-result">
+                  <div className="skeleton rq-result-img" />
+                  <div className="rq-result-body">
+                    <div className="skeleton skeleton-line" />
+                    <div className="skeleton skeleton-line short" />
                   </div>
-                )}
-              </div>
-              {r.needsAttention && IN_FLIGHT.includes(r.status) && (
-                <button className="btn btn-small btn-primary" onClick={() => setPicking(picking === r.id ? null : r.id)}>
-                  {picking === r.id ? 'Hide' : 'Choose'}
-                </button>
-              )}
-              {RETRYABLE.includes(r.status) && (
-                <button className="btn btn-small" onClick={act(() => api.wishlistRetry(r.id), 'Trying again')}>
-                  Retry
-                </button>
-              )}
-              {r.bookId && (
-                <Link className="btn btn-small btn-primary" to={`/book/${r.bookId}`}>
-                  Open
-                </Link>
-              )}
-              <button
-                className="icon-btn small-x"
-                aria-label={IN_FLIGHT.includes(r.status) ? 'Cancel request' : 'Remove from list'}
-                title={IN_FLIGHT.includes(r.status) ? 'Cancel request' : 'Remove from list'}
-                onClick={() => cancel(r)}
-              >
-                ×
-              </button>
-              {picking === r.id && (
-                <div className="import-picker">
-                  <ReleasePicker
-                    id={r.id}
-                    onError={setError}
-                    onDone={() => {
-                      setPicking(null);
-                      refresh();
-                    }}
-                  />
-                </div>
-              )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {!searching && results && results.length === 0 && (
+            <div className="rq-empty">
+              <SearchIcon size={28} />
+              <p>Nothing found for "{query.trim()}".</p>
+              <p className="muted small">Try just the author's name, or fewer words.</p>
             </div>
-          ))}
-        </section>
+          )}
+
+          {!searching && results && results.length > 0 && (
+            <ul className="rq-results">
+              {results.map((r) => (
+                <ResultCard
+                  key={r.workId}
+                  r={r}
+                  cover={covers[r.workId] ?? r.coverUrl}
+                  requestedTypes={requestedTypes(r)}
+                  onRequest={(t) => request(r, t)}
+                  onCovers={r.workId.startsWith('openlibrary:') ? () => setCoverFor(r) : null}
+                />
+              ))}
+            </ul>
+          )}
+
+          {!searching && !results && (
+            <div className="rq-empty">
+              <BookOpenIcon size={28} />
+              <p>What would you like to read or listen to?</p>
+              <p className="muted small">Search a title, author or series, then choose audiobook or ebook.</p>
+            </div>
+          )}
+        </div>
       )}
 
-      {results && results.length === 0 && !searching && <p className="muted">Nothing found. Try the author's name or fewer words.</p>}
+      {tab === 'mine' && (
+        <div role="tabpanel" aria-label="My requests">
+          {requests === null && <p className="muted center">Loading…</p>}
+          {requests !== null && list.length === 0 && (
+            <div className="rq-empty">
+              <DownloadIcon size={28} />
+              <p>No requests yet.</p>
+              <button className="btn btn-small" onClick={() => setTab('find')}>
+                Find a book
+              </button>
+            </div>
+          )}
+          {picks.length > 0 && <Group title="Needs your pick">{picks.map(card)}</Group>}
+          {running.length > 0 && <Group title="In progress">{running.map(card)}</Group>}
+          {ready.length > 0 && (
+            <Group
+              title="Ready"
+              action={
+                ready.length > 1 && (
+                  <button className="link-btn" onClick={() => clearAll(ready)}>
+                    Clear all
+                  </button>
+                )
+              }
+            >
+              {ready.map(card)}
+            </Group>
+          )}
+          {failed.length > 0 && (
+            <Group
+              title="Didn't work"
+              action={
+                failed.length > 1 && (
+                  <button className="link-btn" onClick={() => clearAll(failed)}>
+                    Clear all
+                  </button>
+                )
+              }
+            >
+              {failed.map(card)}
+            </Group>
+          )}
+        </div>
+      )}
 
-      {results && (
-        <ul className="result-list">
-          {results.map((r) => (
-            <li key={r.workId} className="result">
-              <Cover src={covers[r.workId] ?? r.coverUrl} title={r.title} className="result-cover" />
-              <div className="result-body">
-                <div className="result-title">{r.title}</div>
-                <div className="muted small">
-                  {r.author}
-                  {r.year ? ` · ${r.year}` : ''}
-                  {r.series ? ` · ${r.series}` : ''}
-                </div>
-                <div className="request-actions">
-                  {(['audiobook', 'ebook'] as const).map((t) => {
-                    const done = sent.has(`${r.workId}:${t}`);
-                    return (
-                      <button key={t} className="btn btn-small" disabled={done} onClick={() => request(r, t)}>
-                        {done ? 'Requested' : t === 'audiobook' ? 'Request audiobook' : 'Request ebook'}
-                      </button>
-                    );
-                  })}
-                  {r.workId.startsWith('openlibrary:') && (
-                    <button
-                      className="btn btn-small btn-ghost"
-                      onClick={() => setCoversOpen(coversOpen === r.workId ? null : r.workId)}
-                    >
-                      {coversOpen === r.workId ? 'Hide covers' : 'Covers'}
-                    </button>
-                  )}
-                </div>
-                {coversOpen === r.workId && (
-                  <EditionStrip
-                    workId={r.workId}
-                    selected={covers[r.workId] ?? null}
-                    onPick={(url) => setCovers((c) => ({ ...c, [r.workId]: url }))}
-                  />
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+      {coverFor && (
+        <CoverSheet
+          result={coverFor}
+          selected={covers[coverFor.workId] ?? null}
+          onPick={(url) => setCovers((c) => ({ ...c, [coverFor.workId]: url }))}
+          onClose={() => setCoverFor(null)}
+        />
+      )}
+      {pickFor && (
+        <ReleaseSheet
+          request={pickFor}
+          onClose={() => setPickFor(null)}
+          onDone={() => {
+            setPickFor(null);
+            refresh();
+          }}
+        />
       )}
     </div>
   );
