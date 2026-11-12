@@ -1,0 +1,165 @@
+export interface User {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+}
+
+export interface Progress {
+  position: number;
+  finished: boolean;
+  updatedAt: number;
+}
+
+export interface Book {
+  id: number;
+  title: string;
+  author: string | null;
+  narrator: string | null;
+  description: string | null;
+  duration: number;
+  hasCover: boolean;
+  source: string | null;
+  addedAt: number;
+  progress: Progress | null;
+}
+
+export interface Track {
+  id: number;
+  idx: number;
+  title: string | null;
+  duration: number;
+  start: number;
+}
+
+export interface Chapter {
+  idx: number;
+  title: string;
+  start: number;
+  end: number;
+}
+
+export interface BookDetail extends Book {
+  tracks: Track[];
+  chapters: Chapter[];
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  author: string;
+  description: string;
+  language: string;
+  duration: string;
+  durationSecs: number;
+  coverUrl: string;
+  sourceUrl: string;
+  inLibrary: boolean;
+  importStatus: string | null;
+}
+
+export interface ImportJob {
+  id: number;
+  sourceId: string;
+  title: string;
+  status: 'queued' | 'downloading' | 'done' | 'failed';
+  progress: number;
+  error: string | null;
+  bookId: number | null;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+  createdAt: number;
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+  }
+}
+
+/** Called when any request comes back 401 so the app can show the login screen. */
+let onUnauthorized: () => void = () => {};
+export const setUnauthorizedHandler = (fn: () => void) => {
+  onUnauthorized = fn;
+};
+
+async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    credentials: 'same-origin',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.status === 401 && !url.startsWith('/api/auth/login')) onUnauthorized();
+  const data = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null;
+  if (!res.ok) throw new ApiError(data?.error ?? `Request failed (${res.status})`, res.status);
+  return data as T;
+}
+
+export const api = {
+  me: () => request<{ user: User }>('GET', '/api/auth/me'),
+  login: (username: string, password: string) =>
+    request<{ user: User }>('POST', '/api/auth/login', { username, password }),
+  logout: () => request('POST', '/api/auth/logout', {}),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request('POST', '/api/auth/password', { currentPassword, newPassword }),
+
+  books: () => request<{ books: Book[] }>('GET', '/api/books'),
+  book: (id: number) => request<{ book: BookDetail }>('GET', `/api/books/${id}`),
+  saveProgress: (id: number, position: number, finished?: boolean) =>
+    request('PUT', `/api/books/${id}/progress`, { position, finished }),
+  resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
+  deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),
+
+  search: (q: string) => request<{ results: SearchResult[] }>('GET', `/api/discover/search?q=${encodeURIComponent(q)}`),
+  importBook: (id: string, title: string) => request<{ importId: number }>('POST', '/api/discover/import', { id, title }),
+  imports: () => request<{ imports: ImportJob[] }>('GET', '/api/imports'),
+  retryImport: (id: number) => request('POST', `/api/imports/${id}/retry`, {}),
+  dismissImport: (id: number) => request('DELETE', `/api/imports/${id}`),
+
+  users: () => request<{ users: AdminUser[] }>('GET', '/api/admin/users'),
+  createUser: (username: string, password: string, isAdmin: boolean) =>
+    request('POST', '/api/admin/users', { username, password, isAdmin }),
+  resetUserPassword: (id: number, password: string) => request('POST', `/api/admin/users/${id}/password`, { password }),
+  deleteUser: (id: number) => request('DELETE', `/api/admin/users/${id}`),
+  scan: () => request<{ result: { added: number; updated: number; removed: number; failed: number } }>('POST', '/api/admin/scan', {}),
+};
+
+export const coverUrl = (book: { id: number; hasCover: boolean }) => (book.hasCover ? `/api/books/${book.id}/cover` : null);
+export const streamUrl = (trackId: number) => `/api/tracks/${trackId}/stream`;
+
+/** Fire-and-forget progress save that survives the page being closed. */
+export function beaconProgress(id: number, position: number): void {
+  const body = new Blob([JSON.stringify({ position })], { type: 'application/json' });
+  if (!navigator.sendBeacon?.(`/api/books/${id}/progress`, body)) {
+    void fetch(`/api/books/${id}/progress`, {
+      method: 'PUT',
+      keepalive: true,
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position }),
+    }).catch(() => undefined);
+  }
+}
+
+export function formatTime(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+export function formatDuration(totalSeconds: number): string {
+  const s = Math.round(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  if (h === 0) return `${m} min`;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}

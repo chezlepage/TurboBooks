@@ -1,0 +1,22 @@
+services:
+  turbobooks:
+    build: .
+    image: turbobooks:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data                        # SQLite DB + extracted covers (back this up)
+      - ${LIBRARY_PATH:-./library}:/library # audio files
+    # No published ports: only cloudflared can reach the app.
+    # Uncomment to also use it on your LAN at http://<vm-ip>:8080 (then set COOKIE_SECURE=false).
+    # ports:
+    #   - "8080:8080"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - turbobooks
