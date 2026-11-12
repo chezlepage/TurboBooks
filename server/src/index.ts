@@ -10,6 +10,7 @@ import { db } from './db.js';
 import { createUser, purgeExpiredSessions } from './lib/auth.js';
 import { resumeImports } from './lib/imports.js';
 import { scanLibrary } from './lib/scanner.js';
+import { watchLibrary } from './lib/watcher.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { bookRoutes } from './routes/books.js';
@@ -86,6 +87,7 @@ await app.listen({ port: config.port, host: config.host });
 console.log(`TurboBooks listening on ${config.host}:${config.port}`);
 
 void scanLibrary().then(resumeImports);
+watchLibrary();
 if (config.scanIntervalMinutes > 0) {
   setInterval(() => void scanLibrary(), config.scanIntervalMinutes * 60 * 1000).unref();
 }
