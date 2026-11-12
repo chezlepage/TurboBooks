@@ -5,6 +5,8 @@ export class ShelfarrError extends Error {
   constructor(
     message: string,
     public status = 502,
+    /** Shelfarr's own HTTP status, when it answered. */
+    public upstream?: number,
   ) {
     super(message);
   }
@@ -32,7 +34,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const data = (await res.json().catch(() => null)) as { errors?: string[] } | null;
   if (!res.ok) {
     const msg = data?.errors?.join(', ') || `Shelfarr error (${res.status})`;
-    throw new ShelfarrError(msg, res.status === 401 || res.status === 403 ? 502 : res.status);
+    throw new ShelfarrError(msg, res.status === 401 || res.status === 403 ? 502 : res.status, res.status);
   }
   return data as T;
 }
@@ -59,7 +61,7 @@ export interface ShelfarrRequest {
   created_at: string;
   updated_at: string;
   request: { external_source: string | null; created_via: string };
-  book: { title: string; author: string | null; book_type: string };
+  book: { title: string; author: string | null; book_type: string; work_id?: string | null };
 }
 
 export const search = (q: string) =>

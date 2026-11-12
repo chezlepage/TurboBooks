@@ -170,6 +170,8 @@ export interface WishRequest {
   bookType: string;
   coverUrl: string | null;
   createdAt: string;
+  /** Once delivered: the book in your library. */
+  bookId: number | null;
 }
 
 /** A book as it appears on someone's profile. */
@@ -306,7 +308,7 @@ export const api = {
     request<{ results: WishResult[] }>('GET', `/api/wishlist/search?q=${encodeURIComponent(q)}`),
   wishlist: () => request<{ requests: WishRequest[] }>('GET', '/api/wishlist'),
   wishlistRequest: (r: WishResult, bookType: 'audiobook' | 'ebook', coverUrl?: string | null) =>
-    request('POST', '/api/wishlist', {
+    request<{ ok: true; addedToLibrary?: number }>('POST', '/api/wishlist', {
       workId: r.workId,
       bookType,
       title: r.title,

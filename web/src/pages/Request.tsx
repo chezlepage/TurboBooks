@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Edition, Release, WishRequest, WishResult } from '../api';
 import { Cover } from '../components/Cover';
+import { toast } from '../components/Toast';
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting',
@@ -183,7 +184,8 @@ export function Request() {
   const request = async (r: WishResult, type: 'audiobook' | 'ebook') => {
     setError(null);
     try {
-      await api.wishlistRequest(r, type, covers[r.workId]);
+      const res = await api.wishlistRequest(r, type, covers[r.workId]);
+      if (res.addedToLibrary) toast('Already on the server, added to your library');
       setSent((s) => new Set(s).add(`${r.workId}:${type}`));
       refresh();
     } catch (err) {
@@ -191,10 +193,25 @@ export function Request() {
     }
   };
 
-  const act = (fn: () => Promise<unknown>) => () =>
+  // Errors also go to a toast: the error line sits at the top of the page, often scrolled out of view.
+  const act = (fn: () => Promise<unknown>, done?: string) => () =>
     fn()
-      .then(refresh)
-      .catch((e: Error) => setError(e.message));
+      .then(() => {
+        if (done) toast(done);
+        refresh();
+      })
+      .catch((e: Error) => {
+        setError(e.message);
+        toast(e.message);
+      });
+
+  const cancel = (r: WishRequest) => {
+    const running = IN_FLIGHT.includes(r.status);
+    if (running && !confirm(`Cancel the request for "${r.title}"?`)) return;
+    // Optimistic: drop it from the list straight away.
+    setRequests((list) => list.filter((x) => x.id !== r.id));
+    act(() => api.wishlistCancel(r.id), running ? 'Request cancelled' : 'Removed from the list')();
+  };
 
   if (enabled === null) return <div className="page" />;
   if (!enabled) {
@@ -259,15 +276,23 @@ export function Request() {
                 </button>
               )}
               {RETRYABLE.includes(r.status) && (
-                <button className="btn btn-small" onClick={act(() => api.wishlistRetry(r.id))}>
+                <button className="btn btn-small" onClick={act(() => api.wishlistRetry(r.id), 'Trying again')}>
                   Retry
                 </button>
               )}
-              {r.status !== 'completed' && r.status !== 'cancelled' && (
-                <button className="icon-btn small-x" aria-label="Cancel request" onClick={act(() => api.wishlistCancel(r.id))}>
-                  ×
-                </button>
+              {r.bookId && (
+                <Link className="btn btn-small btn-primary" to={`/book/${r.bookId}`}>
+                  Open
+                </Link>
               )}
+              <button
+                className="icon-btn small-x"
+                aria-label={IN_FLIGHT.includes(r.status) ? 'Cancel request' : 'Remove from list'}
+                title={IN_FLIGHT.includes(r.status) ? 'Cancel request' : 'Remove from list'}
+                onClick={() => cancel(r)}
+              >
+                ×
+              </button>
               {picking === r.id && (
                 <div className="import-picker">
                   <ReleasePicker

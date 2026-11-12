@@ -175,6 +175,22 @@ const migrations: string[] = [
     PRIMARY KEY (user_id, book_id)
   );
   `,
+  // v8: who made each Shelfarr request. Shelfarr only knows TurboBooks' own account, so the
+  // requester is tracked here: for per-user request lists and to add delivered books to their library.
+  `
+  CREATE TABLE request_owners (
+    request_id INTEGER PRIMARY KEY,           -- Shelfarr request id
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    work_id    TEXT NOT NULL,
+    book_type  TEXT NOT NULL,                 -- audiobook | ebook
+    title      TEXT NOT NULL,
+    author     TEXT,
+    created_at INTEGER NOT NULL,
+    dismissed  INTEGER NOT NULL DEFAULT 0,    -- removed from the user's list
+    book_id    INTEGER REFERENCES books(id) ON DELETE SET NULL -- the delivered book, once found
+  );
+  CREATE INDEX request_owners_user ON request_owners(user_id);
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

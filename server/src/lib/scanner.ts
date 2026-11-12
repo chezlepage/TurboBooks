@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { db, now } from '../db.js';
 import { readEpubMeta } from './epub.js';
 import { AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, extractCover, probe } from './media.js';
+import { claimNewBook } from './requested.js';
 
 /**
  * Library layout rules:
@@ -288,10 +289,16 @@ async function doScan(): Promise<ScanResult> {
     const signature = await signatureOf(candidate);
     if (prev && prev.signature === signature) continue;
     try {
-      if (candidate.kind === 'ebook') await indexEbook(candidate, signature, prev?.id);
-      else await indexBook(candidate, signature, prev?.id);
+      const bookId =
+        candidate.kind === 'ebook'
+          ? await indexEbook(candidate, signature, prev?.id)
+          : await indexBook(candidate, signature, prev?.id);
       if (prev) result.updated++;
-      else result.added++;
+      else {
+        result.added++;
+        // Books requested through Shelfarr land here with no owner: hand them to the requester.
+        claimNewBook(bookId);
+      }
     } catch (err) {
       result.failed++;
       console.warn(`[scan] failed to index ${candidate.key}:`, (err as Error).message);
