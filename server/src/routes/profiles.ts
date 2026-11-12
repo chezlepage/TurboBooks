@@ -66,7 +66,9 @@ function visibility(ownerId: number, viewerId: number) {
 
 const ACTIVITY_SELECT = `
   SELECT b.id, b.title, b.author, b.kind, b.duration, b.cover_path, p.position, p.finished, p.updated_at
-  FROM progress p JOIN books b ON b.id = p.book_id
+  FROM progress p
+  JOIN books b ON b.id = p.book_id
+  JOIN library_entries le ON le.book_id = p.book_id AND le.user_id = p.user_id
   WHERE p.user_id = ?`;
 
 /** Started = meaningfully into the book (a few seconds of audio, or half a percent of an ebook). */
@@ -81,7 +83,9 @@ function statsFor(userId: number, exclude: Set<number>) {
          SUM(CASE WHEN p.finished = 1 AND p.updated_at > ? THEN 1 ELSE 0 END) AS finishedThisYear,
          SUM(CASE WHEN ${STARTED} THEN 1 ELSE 0 END) AS inProgress,
          SUM(CASE WHEN b.kind = 'audio' THEN (CASE WHEN p.finished = 1 THEN b.duration ELSE p.position END) ELSE 0 END) AS listenedSecs
-       FROM progress p JOIN books b ON b.id = p.book_id
+       FROM progress p
+       JOIN books b ON b.id = p.book_id
+       JOIN library_entries le ON le.book_id = p.book_id AND le.user_id = p.user_id
        WHERE p.user_id = ?${notIn}`,
     )
     .get(Date.now() - YEAR_MS, userId, ...notInParams) as Record<string, number | null>;

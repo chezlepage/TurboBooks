@@ -65,7 +65,7 @@ async function feed(url: string): Promise<string> {
   return xml;
 }
 
-export async function search(opts: { text?: string; category?: string; english?: boolean; page?: number }) {
+export async function search(opts: { userId: number; text?: string; category?: string; english?: boolean; page?: number }) {
   const terms: string[] = [];
   if (opts.text) terms.push(opts.text.replace(/[^\p{L}\p{N}\s'.-]/gu, ' ').trim().slice(0, 100));
   else if (opts.category && CATEGORIES[opts.category]?.query) terms.push(CATEGORIES[opts.category].query!);
@@ -78,7 +78,7 @@ export async function search(opts: { text?: string; category?: string; english?:
   if (page > 0) url.searchParams.set('start_index', String(page * PAGE_SIZE + 1));
 
   const xml = await feed(url.toString());
-  const { bookIds, imports } = libraryState(SOURCE);
+  const { bookIds, imports } = libraryState(SOURCE, opts.userId);
   const seen = new Set<string>();
   const results: SearchResult[] = [];
   for (const [, entry] of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {

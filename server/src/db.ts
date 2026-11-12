@@ -117,6 +117,32 @@ const migrations: string[] = [
   `
   ALTER TABLE users ADD COLUMN kindle_email TEXT;
   `,
+  // v6: personal libraries. Files are stored once; each user has their own list of books.
+  `
+  CREATE TABLE library_entries (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id  INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, book_id)
+  );
+  CREATE INDEX library_entries_book ON library_entries(book_id);
+
+  -- Everyone waiting on a download (the same book requested by two people downloads once).
+  CREATE TABLE import_waiters (
+    import_id INTEGER NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (import_id, user_id)
+  );
+
+  -- Existing books belong to whoever imported them, and to anyone who has started them.
+  INSERT OR IGNORE INTO library_entries (user_id, book_id, added_at)
+    SELECT created_by, book_id, updated_at FROM imports
+    WHERE status = 'done' AND book_id IS NOT NULL AND created_by IS NOT NULL;
+  INSERT OR IGNORE INTO library_entries (user_id, book_id, added_at)
+    SELECT user_id, book_id, updated_at FROM progress;
+  INSERT OR IGNORE INTO import_waiters (import_id, user_id)
+    SELECT id, created_by FROM imports WHERE created_by IS NOT NULL;
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

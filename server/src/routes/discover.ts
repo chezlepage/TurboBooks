@@ -4,7 +4,7 @@ import { db } from '../db.js';
 import * as archive from '../lib/archive.js';
 import { requireUser } from '../lib/auth.js';
 import * as gutenberg from '../lib/gutenberg.js';
-import { enqueueImport, retryImport } from '../lib/imports.js';
+import { dismissImport, enqueueImport, retryImport } from '../lib/imports.js';
 
 /** Each kind of book comes from its own free catalog. */
 const CATALOGS = {
@@ -60,7 +60,13 @@ export async function discoverRoutes(app: FastifyInstance) {
       const { kind, q, category, english, page } = query.data;
       const catalog = CATALOGS[kind];
       try {
-        return await catalog.search({ text: q || undefined, category: q ? undefined : category, english: english === '1', page });
+        return await catalog.search({
+          userId: request.user!.id,
+          text: q || undefined,
+          category: q ? undefined : category,
+          english: english === '1',
+          page,
+        });
       } catch (err) {
         request.log.warn(err, `${catalog.name} search failed`);
         return reply.code(502).send({ error: `${catalog.name} is not responding, try again in a bit` });
@@ -78,29 +84,31 @@ export async function discoverRoutes(app: FastifyInstance) {
   app.post('/api/discover/import', async (request, reply) => {
     const body = importBody.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: 'Invalid book id' });
-    const id = enqueueImport(CATALOGS[body.data.kind].source, body.data.id, body.data.title, request.user!.id);
-    return { importId: id };
+    // { bookId } when the book was already on the server (added instantly), else { importId }.
+    return enqueueImport(CATALOGS[body.data.kind].source, body.data.id, body.data.title, request.user!.id);
   });
 
-  app.get('/api/imports', async () => ({
+  /** My downloads only (including ones I'm waiting on that someone else started). */
+  app.get('/api/imports', async (request) => ({
     imports: db
       .prepare(
-        `SELECT id, source, source_id AS sourceId, title, status, progress, error, book_id AS bookId,
-                created_at AS createdAt, updated_at AS updatedAt
-         FROM imports ORDER BY id DESC LIMIT 30`,
+        `SELECT i.id, i.source, i.source_id AS sourceId, i.title, i.status, i.progress, i.error, i.book_id AS bookId,
+                i.created_at AS createdAt, i.updated_at AS updatedAt
+         FROM imports i JOIN import_waiters w ON w.import_id = i.id AND w.user_id = ?
+         ORDER BY i.id DESC LIMIT 30`,
       )
-      .all(),
+      .all(request.user!.id),
   }));
 
   app.post('/api/imports/:id/retry', async (request) => {
     const { id } = idParam.parse(request.params);
-    retryImport(id);
+    retryImport(id, request.user!.id);
     return { ok: true };
   });
 
   app.delete('/api/imports/:id', async (request) => {
     const { id } = idParam.parse(request.params);
-    db.prepare("DELETE FROM imports WHERE id = ? AND status IN ('done', 'failed')").run(id);
+    dismissImport(id, request.user!.id);
     return { ok: true };
   });
 }

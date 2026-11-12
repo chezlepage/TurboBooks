@@ -26,6 +26,8 @@ export interface Book {
   source: string | null;
   addedAt: number;
   kind: BookKind;
+  /** In my own library (false when seen via someone's profile, or an unclaimed file for admins). */
+  inLibrary: boolean;
   progress: Progress | null;
 }
 
@@ -232,6 +234,10 @@ export const api = {
   sendToKindle: (id: number) => request<{ ok: true; to: string }>('POST', `/api/books/${id}/send-to-kindle`, {}),
   resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
   deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),
+  addToLibrary: (id: number) => request('POST', `/api/books/${id}/library`, {}),
+  removeFromLibrary: (id: number) => request('DELETE', `/api/books/${id}/library`),
+  /** Admin: files on the server nobody has added yet. */
+  unclaimedBooks: () => request<{ books: Book[] }>('GET', '/api/books/unclaimed'),
 
   search: (p: SearchParams) => {
     const qs = new URLSearchParams();
@@ -244,7 +250,8 @@ export const api = {
   },
   categories: (kind: BookKind) => request<{ categories: Category[] }>('GET', `/api/discover/categories?kind=${kind}`),
   importBook: (kind: BookKind, id: string, title: string) =>
-    request<{ importId: number }>('POST', '/api/discover/import', { kind, id, title }),
+    // bookId: it was already on the server and is now in your library (no download needed).
+    request<{ importId?: number; bookId?: number }>('POST', '/api/discover/import', { kind, id, title }),
   imports: () => request<{ imports: ImportJob[] }>('GET', '/api/imports'),
   retryImport: (id: number) => request('POST', `/api/imports/${id}/retry`, {}),
   dismissImport: (id: number) => request('DELETE', `/api/imports/${id}`),

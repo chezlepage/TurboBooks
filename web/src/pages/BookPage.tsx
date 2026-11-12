@@ -100,10 +100,25 @@ export function BookPage() {
   const deleteBook = async () => {
     setMenuOpen(false);
     const what = isEbook ? 'its ebook file' : 'its audio files';
-    if (!confirm(`Delete "${book.title}" and ${what} from the server? This can't be undone.`)) return;
+    if (!confirm(`Delete "${book.title}" and ${what} from the server? It disappears from everyone's library. This can't be undone.`)) return;
     if (isCurrent) player.close();
     await api.deleteBook(book.id);
     toast('Book deleted');
+    navigate('/');
+  };
+
+  const addToMine = async () => {
+    await api.addToLibrary(book.id);
+    toast('Added to your library');
+    void load();
+  };
+
+  const removeFromMine = async () => {
+    setMenuOpen(false);
+    if (!confirm(`Remove "${book.title}" from your library? Your progress is kept if you add it again.`)) return;
+    if (isCurrent) player.close();
+    await api.removeFromLibrary(book.id);
+    toast('Removed from your library');
     navigate('/');
   };
 
@@ -156,7 +171,8 @@ export function BookPage() {
             {chips.map((c) => (
               <li key={c}>{c}</li>
             ))}
-            {isHidden && <li className="private-chip">Hidden from others</li>}
+            {book.inLibrary && isHidden && <li className="private-chip">Hidden from others</li>}
+            {!book.inLibrary && <li className="private-chip">Not in your library</li>}
           </ul>
 
           {(started || finished) && (
@@ -189,6 +205,12 @@ export function BookPage() {
               </button>
             )}
 
+            {!book.inLibrary && (
+              <button className="btn btn-lg" onClick={addToMine}>
+                Add to my library
+              </button>
+            )}
+
             {isEbook && kindle?.enabled && (
               <button className="btn btn-lg btn-kindle" onClick={sendToKindle} disabled={sendingToKindle}>
                 {sendingToKindle ? 'Sending…' : 'Send to Kindle'}
@@ -210,9 +232,11 @@ export function BookPage() {
                 </button>
                 {menuOpen && (
                   <div className="menu" role="menu">
-                    <button role="menuitem" onClick={toggleHidden}>
-                      {isHidden ? 'Show on my profile' : 'Hide from my profile'}
-                    </button>
+                    {book.inLibrary && (
+                      <button role="menuitem" onClick={toggleHidden}>
+                        {isHidden ? 'Show on my profile' : 'Hide from my profile'}
+                      </button>
+                    )}
                     {(started || finished) && (
                       <button role="menuitem" onClick={resetProgress}>
                         Start over
@@ -221,6 +245,11 @@ export function BookPage() {
                     {!finished && (
                       <button role="menuitem" onClick={markFinished}>
                         Mark as finished
+                      </button>
+                    )}
+                    {book.inLibrary && (
+                      <button role="menuitem" onClick={removeFromMine}>
+                        Remove from my library
                       </button>
                     )}
                     {user?.isAdmin && (

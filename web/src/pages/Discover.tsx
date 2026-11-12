@@ -138,7 +138,13 @@ export function Discover() {
 
   const add = async (r: SearchResult) => {
     try {
-      await api.importBook(r.kind, r.id, r.title);
+      const res = await api.importBook(r.kind, r.id, r.title);
+      if (res.bookId) {
+        // Already on the server: it's in your library right away.
+        toast(`“${r.title}” is in your library`);
+        setResults((rs) => rs?.map((x) => (x.id === r.id ? { ...x, bookId: res.bookId! } : x)) ?? null);
+        return;
+      }
       toast(`Adding “${r.title}” to your library`);
       setResults((rs) => rs?.map((x) => (x.id === r.id ? { ...x, importStatus: 'queued' } : x)) ?? null);
       refreshImports();

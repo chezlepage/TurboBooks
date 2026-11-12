@@ -58,19 +58,31 @@ export async function moveIntoLibrary(work: string, finalDir: string): Promise<v
   await fs.rename(work, finalDir);
 }
 
-/** Library book ids and import states for a source, for marking search results. */
-export function libraryState(source: string) {
+/**
+ * For marking search results: which of this source's books are in *this user's* library,
+ * and the state of *this user's* downloads. Other people's libraries never leak in here.
+ */
+export function libraryState(source: string, userId: number) {
   const bookIds = new Map(
-    (db.prepare('SELECT id, source_id FROM books WHERE source = ?').all(source) as { id: number; source_id: string }[]).map(
-      (r) => [r.source_id, r.id],
-    ),
+    (
+      db
+        .prepare(
+          `SELECT b.id, b.source_id FROM books b
+           JOIN library_entries le ON le.book_id = b.id AND le.user_id = ?
+           WHERE b.source = ?`,
+        )
+        .all(userId, source) as { id: number; source_id: string }[]
+    ).map((r) => [r.source_id, r.id]),
   );
   const imports = new Map(
     (
-      db.prepare('SELECT source_id, status FROM imports WHERE source = ? ORDER BY id').all(source) as {
-        source_id: string;
-        status: string;
-      }[]
+      db
+        .prepare(
+          `SELECT i.source_id, i.status FROM imports i
+           JOIN import_waiters w ON w.import_id = i.id AND w.user_id = ?
+           WHERE i.source = ? ORDER BY i.id`,
+        )
+        .all(userId, source) as { source_id: string; status: string }[]
     ).map((r) => [r.source_id, r.status]),
   );
   return { bookIds, imports };

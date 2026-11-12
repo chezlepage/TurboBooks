@@ -5,6 +5,7 @@ import type { Book, BookDetail } from '../api';
 import { Cover } from '../components/Cover';
 import { BooksIcon, PlayIcon, SearchIcon } from '../components/Icons';
 import { GridSkeleton } from '../components/Skeleton';
+import { useAuth } from '../auth';
 import { usePlayer } from '../player/PlayerContext';
 
 type Shelf = 'all' | 'audio' | 'ebook' | 'reading' | 'finished';
@@ -42,6 +43,9 @@ function greeting(d = new Date()) {
 
 export function Library() {
   const [books, setBooks] = useState<Book[] | null>(null);
+  /** Admins: files on the server nobody has added to their library yet. */
+  const [unclaimed, setUnclaimed] = useState<Book[]>([]);
+  const { user } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [shelf, setShelfState] = useState<Shelf>(() => {
@@ -68,6 +72,12 @@ export function Library() {
       .books()
       .then((r) => setBooks(r.books))
       .catch((e: Error) => setError(e.message));
+    if (user?.isAdmin) {
+      api
+        .unclaimedBooks()
+        .then((r) => setUnclaimed(r.books))
+        .catch(() => undefined);
+    }
     // Refetch when the playing book changes so progress is fresh.
   }, [player.book?.id]);
 
@@ -191,6 +201,19 @@ export function Library() {
             {shown.length === 0 && <p className="muted center empty-inline">Nothing here yet.</p>}
           </section>
         </>
+      )}
+      {unclaimed.length > 0 && (
+        <section className="unclaimed">
+          <h2 className="section-title">Unclaimed on the server</h2>
+          <p className="muted small">
+            Files on the server that nobody has added yet (only admins see this). Open one and tap “Add to my library”.
+          </p>
+          <div className="shelf">
+            {unclaimed.map((b) => (
+              <BookCard key={b.id} book={b} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

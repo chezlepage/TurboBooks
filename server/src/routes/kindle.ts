@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
+import { canAccessBook } from '../lib/library.js';
 
 /** Amazon's limit for emailed documents. */
 const MAX_BYTES = 50 * 1024 * 1024;
@@ -76,6 +77,7 @@ export async function kindleRoutes(app: FastifyInstance) {
       if (!to) return reply.code(400).send({ error: 'Add your Kindle email address first' });
 
       const { id } = idParam.parse(request.params);
+      if (!canAccessBook(request.user!, id)) return reply.code(404).send({ error: 'Ebook not found' });
       const book = db.prepare("SELECT title, path FROM books WHERE id = ? AND kind = 'ebook'").get(id) as
         | { title: string; path: string }
         | undefined;

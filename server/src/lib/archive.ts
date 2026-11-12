@@ -125,6 +125,8 @@ export const CATEGORIES: Record<string, { label: string; query?: string; maxSecs
 };
 
 interface QueryOptions {
+  /** Whose library to mark results against. */
+  userId: number;
   text?: string;
   category?: string;
   english?: boolean;
@@ -184,7 +186,7 @@ export async function search(opts: QueryOptions): Promise<{ results: SearchResul
   const page = Math.max(0, opts.page ?? 0);
   const docs = await fetchDocs(parts.join(' AND '), rows, page);
 
-  const { bookIds: libraryIds, imports } = libraryState(SOURCE);
+  const { bookIds: libraryIds, imports } = libraryState(SOURCE, opts.userId);
 
   const seen = new Set<string>();
   const results: SearchResult[] = [];
