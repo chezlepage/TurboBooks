@@ -76,6 +76,23 @@ function dismiss(req: shelfarr.ShelfarrRequest, userId: number) {
   }
 }
 
+/**
+ * Pasted titles carry typographic punctuation (Neighbor’s, “Quotes”, en dashes) that book
+ * databases don't match: Open Library finds nothing for "Her Neighbor’s Wife: …" but finds
+ * it with a plain apostrophe. Straighten it before searching.
+ */
+export function normalizeQuery(q: string): string {
+  return q
+    .normalize('NFKC')
+    .replace(/[‘’‚‛′ʼ`´]/g, "'")
+    .replace(/[“”„‟″«»]/g, '"')
+    .replace(/[‐-―−]/g, '-')
+    .replace(/…/g, '...')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
+}
+
 /** Statuses where Shelfarr has nothing left to stop. */
 const SETTLED = ['completed', 'failed', 'not_found'];
 
@@ -117,8 +134,12 @@ export async function requestRoutes(app: FastifyInstance) {
     '/api/wishlist/search',
     { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
     async (request) => {
-      const { q } = z.object({ q: z.string().trim().min(2).max(100) }).parse(request.query);
-      const { results } = await shelfarr.search(q);
+      const { q } = z.object({ q: z.string().trim().min(2).max(200) }).parse(request.query);
+      const query = normalizeQuery(q);
+      let { results } = await shelfarr.search(query);
+      // Long "Title: Subtitle" searches often match nothing; retry with just the title.
+      const short = query.split(/\s*[:–—]\s+|\s+-\s+/)[0];
+      if (results.length === 0 && short.length >= 2 && short !== query) ({ results } = await shelfarr.search(short));
       return {
         results: results.map((r) => ({
           workId: r.work_id,
