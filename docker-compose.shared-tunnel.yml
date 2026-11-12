@@ -1,0 +1,28 @@
+# For a host that already runs cloudflared in another compose project (e.g. the Plex
+# "mediastack"). TurboBooks joins that project's network so the existing tunnel can
+# reach it at http://turbobooks:8080; no second cloudflared and no published ports.
+#
+# Use it by putting this in .env:
+#   COMPOSE_FILE=docker-compose.shared-tunnel.yml
+#   TUNNEL_NETWORK=mediastack_default
+# then `docker compose up -d --build` as usual.
+services:
+  turbobooks:
+    build: .
+    image: turbobooks:latest
+    container_name: turbobooks
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ${LIBRARY_PATH:-./library}:/library
+    networks:
+      - tunnel
+    # Optional LAN access at http://<vm-ip>:8095 (8080 is often taken, e.g. by qBittorrent).
+    # ports:
+    #   - "8095:8080"
+
+networks:
+  tunnel:
+    external: true
+    name: ${TUNNEL_NETWORK:-mediastack_default}

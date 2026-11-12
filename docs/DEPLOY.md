@@ -7,6 +7,17 @@ Phone ──HTTPS──> Cloudflare (Access: only your 2 emails) ──tunnel─
 
 No ports are opened on your router. Cloudflare Access sits in front of the app login, so nobody but the two of you can even load the page.
 
+## Already have a Docker host with cloudflared? (e.g. the Plex VM)
+
+Skip the new VM and the second tunnel. Clone into e.g. `/opt/turbobooks`, and in `.env` set:
+
+```sh
+COMPOSE_FILE=docker-compose.shared-tunnel.yml
+TUNNEL_NETWORK=mediastack_default   # the network your existing cloudflared container is on
+```
+
+Leave `CLOUDFLARE_TUNNEL_TOKEN` empty. In Zero Trust → Tunnels → *your existing tunnel* → Public hostname, add `books.yourdomain.com` → `HTTP` → `turbobooks:8080`. Then do steps 6–8 below.
+
 ## 1. Create the VM
 
 In the ESXi web UI, create a VM:
