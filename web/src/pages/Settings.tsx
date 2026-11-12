@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../api';
 import type { AdminUser } from '../api';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { ChevronLeftIcon } from '../components/Icons';
 import { usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
 
@@ -10,6 +12,9 @@ export function Settings() {
   const { user, logout } = useAuth();
   return (
     <div className="page">
+      <Link className="back-link" to="/profile">
+        <ChevronLeftIcon size={20} /> Profile
+      </Link>
       <h1>Settings</h1>
       <p className="muted">
         Signed in as <strong>{user?.username}</strong>

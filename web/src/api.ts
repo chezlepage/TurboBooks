@@ -136,6 +136,44 @@ export interface WishRequest {
   createdAt: string;
 }
 
+/** A book as it appears on someone's profile. */
+export interface Activity {
+  id: number;
+  title: string;
+  author: string | null;
+  kind: BookKind;
+  hasCover: boolean;
+  fraction: number;
+  finished: boolean;
+  updatedAt: number;
+}
+
+export interface PersonStats {
+  finished: number;
+  finishedThisYear: number;
+  inProgress: number;
+  listenedHours: number;
+}
+
+export interface PersonSummary {
+  id: number;
+  username: string;
+  isYou: boolean;
+  current: Activity | null;
+  stats: PersonStats;
+}
+
+export interface Person {
+  id: number;
+  username: string;
+  isAdmin: boolean;
+  isYou: boolean;
+  memberSince: number;
+  stats: PersonStats;
+  current: Activity[];
+  finished: Activity[];
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -220,6 +258,8 @@ export const api = {
   wishlistRetry: (id: number) => request('POST', `/api/wishlist/${id}/retry`, {}),
   wishlistCancel: (id: number) => request('DELETE', `/api/wishlist/${id}`),
 
+  people: () => request<{ people: PersonSummary[] }>('GET', '/api/people'),
+  person: (id: number) => request<{ person: Person }>('GET', `/api/people/${id}`),
   users: () => request<{ users: AdminUser[] }>('GET', '/api/admin/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     request('POST', '/api/admin/users', { username, password, isAdmin }),
@@ -257,6 +297,7 @@ export function formatTime(totalSeconds: number): string {
 
 export function formatDuration(totalSeconds: number): string {
   const s = Math.round(totalSeconds);
+  if (s > 0 && s < 60) return '<1 min';
   const h = Math.floor(s / 3600);
   const m = Math.round((s % 3600) / 60);
   if (h === 0) return `${m} min`;

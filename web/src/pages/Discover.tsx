@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, formatDuration } from '../api';
 import type { BookKind, Category, ImportJob, SearchParams, SearchResult } from '../api';
 import { Cover } from '../components/Cover';
+import { ListSkeleton } from '../components/Skeleton';
+import { toast } from '../components/Toast';
 import { CheckIcon, PlusIcon } from '../components/Icons';
 
 const LS_ENGLISH = 'tb.discover.english';
@@ -137,6 +139,7 @@ export function Discover() {
   const add = async (r: SearchResult) => {
     try {
       await api.importBook(r.kind, r.id, r.title);
+      toast(`Adding “${r.title}” to your library`);
       setResults((rs) => rs?.map((x) => (x.id === r.id ? { ...x, importStatus: 'queued' } : x)) ?? null);
       refreshImports();
     } catch (e) {
@@ -332,7 +335,8 @@ export function Discover() {
         </ul>
       )}
 
-      {loading && <p className="muted center">Loading…</p>}
+      {loading && (!results || results.length === 0) && <ListSkeleton />}
+      {loading && results && results.length > 0 && <p className="muted center">Loading…</p>}
       {!loading && hasMore && results && results.length > 0 && (
         <div className="center load-more">
           <button className="btn" onClick={() => void load(currentParams(page + 1), true)}>

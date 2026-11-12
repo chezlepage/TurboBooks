@@ -15,7 +15,9 @@ import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { bookRoutes } from './routes/books.js';
 import { discoverRoutes } from './routes/discover.js';
+import { kindleRoutes } from './routes/kindle.js';
 import { prefsRoutes } from './routes/prefs.js';
+import { profileRoutes } from './routes/profiles.js';
 import { requestRoutes } from './routes/requests.js';
 
 const app = Fastify({
@@ -52,7 +54,9 @@ await app.register(authRoutes);
 await app.register(bookRoutes);
 await app.register(adminRoutes);
 await app.register(discoverRoutes);
+await app.register(kindleRoutes);
 await app.register(prefsRoutes);
+await app.register(profileRoutes);
 await app.register(requestRoutes);
 
 // Serve the built web app, with SPA fallback to index.html.

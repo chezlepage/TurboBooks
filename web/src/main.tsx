@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { AuthProvider } from './auth';
+import '@fontsource-variable/literata';
 import './styles.css';
+import './styles-v4.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

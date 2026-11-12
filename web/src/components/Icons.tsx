@@ -116,3 +116,9 @@ export const DimIcon = (p: P) => (
     <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" />
   </svg>
 );
+export const UserIcon = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0 1 16 0" />
+  </svg>
+);

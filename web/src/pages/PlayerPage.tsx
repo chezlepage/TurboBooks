@@ -30,10 +30,14 @@ export function PlayerPage() {
   if (!book) {
     return (
       <div className="page">
-        <p className="muted">Nothing playing.</p>
-        <Link to="/" className="btn">
-          Go to library
-        </Link>
+        <div className="empty-state">
+          <MoonIcon size={40} />
+          <h2>Nothing playing</h2>
+          <p className="muted">Pick an audiobook from your library and it will show up here.</p>
+          <Link to="/" className="btn btn-primary">
+            Go to library
+          </Link>
+        </div>
       </div>
     );
   }

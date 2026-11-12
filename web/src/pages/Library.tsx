@@ -1,50 +1,82 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, coverUrl, formatDuration } from '../api';
-import type { Book } from '../api';
+import type { Book, BookDetail } from '../api';
 import { Cover } from '../components/Cover';
+import { BooksIcon, PlayIcon, SearchIcon } from '../components/Icons';
+import { GridSkeleton } from '../components/Skeleton';
 import { usePlayer } from '../player/PlayerContext';
 
-type Filter = 'all' | 'unstarted' | 'finished';
-type KindFilter = 'all' | 'audio' | 'ebook';
+type Shelf = 'all' | 'audio' | 'ebook' | 'reading' | 'finished';
 
-const LS_KIND = 'tb.library.kind';
+const SHELVES: { id: Shelf; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'audio', label: 'Audiobooks' },
+  { id: 'ebook', label: 'Ebooks' },
+  { id: 'reading', label: 'In progress' },
+  { id: 'finished', label: 'Finished' },
+];
+const LS_SHELF = 'tb.library.shelf';
+
+const isStarted = (b: Book) => !!b.progress && !b.progress.finished && b.progress.position > (b.kind === 'ebook' ? 0.005 : 5);
+
+/** "23 min left" for audio, "42% read" for ebooks. */
+function progressLabel(b: Book): string {
+  if (b.progress?.finished) return 'Finished';
+  if (!isStarted(b)) return b.kind === 'ebook' ? 'Ebook' : formatDuration(b.duration);
+  return b.kind === 'ebook'
+    ? `${Math.round(b.progress!.position * 100)}% read`
+    : `${formatDuration(b.duration - b.progress!.position)} left`;
+}
+
+const fraction = (b: Book) =>
+  b.progress ? (b.progress.finished ? 1 : b.kind === 'ebook' ? b.progress.position : b.progress.position / Math.max(b.duration, 1)) : 0;
+
+function greeting(d = new Date()) {
+  const h = d.getHours();
+  if (h < 5 || h >= 21) return 'Good night';
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
 
 export function Library() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<Filter>('all');
-  const [kind, setKindState] = useState<KindFilter>(() => {
+  const [shelf, setShelfState] = useState<Shelf>(() => {
     try {
-      return (localStorage.getItem(LS_KIND) as KindFilter) || 'all';
+      const s = localStorage.getItem(LS_SHELF) as Shelf | null;
+      return s && SHELVES.some((x) => x.id === s) ? s : 'all';
     } catch {
       return 'all';
     }
   });
-  const setKind = (k: KindFilter) => {
-    setKindState(k);
+  const player = usePlayer();
+
+  const setShelf = (s: Shelf) => {
+    setShelfState(s);
     try {
-      localStorage.setItem(LS_KIND, k);
+      localStorage.setItem(LS_SHELF, s);
     } catch {
       /* ignore */
     }
   };
-  const { book: current } = usePlayer();
 
   useEffect(() => {
     api
       .books()
       .then((r) => setBooks(r.books))
       .catch((e: Error) => setError(e.message));
-    // Refetch when the playing book changes so progress bars are fresh.
-  }, [current?.id]);
+    // Refetch when the playing book changes so progress is fresh.
+  }, [player.book?.id]);
 
   const inProgress = useMemo(
-    () =>
-      (books ?? [])
-        .filter((b) => b.progress && !b.progress.finished && b.progress.position > (b.kind === 'ebook' ? 0.005 : 5))
-        .sort((a, b) => b.progress!.updatedAt - a.progress!.updatedAt),
+    () => (books ?? []).filter(isStarted).sort((a, b) => b.progress!.updatedAt - a.progress!.updatedAt),
+    [books],
+  );
+  const recentlyAdded = useMemo(
+    () => [...(books ?? [])].filter((b) => !b.progress).sort((a, b) => b.addedAt - a.addedAt).slice(0, 12),
     [books],
   );
 
@@ -52,87 +84,175 @@ export function Library() {
     const q = query.trim().toLowerCase();
     return (books ?? []).filter((b) => {
       if (q && !`${b.title} ${b.author ?? ''}`.toLowerCase().includes(q)) return false;
-      if (kind !== 'all' && b.kind !== kind) return false;
-      if (filter === 'unstarted') return !b.progress;
-      if (filter === 'finished') return !!b.progress?.finished;
-      return true;
+      switch (shelf) {
+        case 'audio':
+          return b.kind === 'audio';
+        case 'ebook':
+          return b.kind === 'ebook';
+        case 'reading':
+          return isStarted(b);
+        case 'finished':
+          return !!b.progress?.finished;
+        default:
+          return true;
+      }
     });
-  }, [books, query, filter, kind]);
+  }, [books, query, shelf]);
 
-  if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!books) return <div className="page"><p className="muted">Loading…</p></div>;
-
-  if (books.length === 0) {
+  if (error) {
     return (
       <div className="page">
-        <h1>Library</h1>
-        <div className="empty">
-          <p>Your library is empty.</p>
-          <p className="muted">Find free audiobooks and ebooks in Discover, or drop audio files and EPUBs in the library folder on the server.</p>
-          <Link className="btn btn-primary" to="/discover">
-            Find books
-          </Link>
-        </div>
+        <p className="error">{error}</p>
       </div>
     );
   }
 
-  return (
-    <div className="page">
-      <h1>Library</h1>
+  const hero = inProgress[0];
+  const browsing = query.trim() !== '';
 
-      {inProgress.length > 0 && !query && (
-        <section>
-          <h2 className="section-title">Continue listening</h2>
-          <div className="shelf">
-            {inProgress.map((b) => (
-              <BookCard key={b.id} book={b} />
-            ))}
-          </div>
-        </section>
+  return (
+    <div className="page library">
+      <header className="page-header">
+        <p className="kicker">{greeting()}</p>
+        <h1>Library</h1>
+      </header>
+
+      {!books && <GridSkeleton />}
+
+      {books && books.length === 0 && (
+        <div className="empty-state">
+          <BooksIcon size={40} />
+          <h2>Your shelves are empty</h2>
+          <p className="muted">Add free classics from Discover, audiobooks or ebooks. Files you copy into the library folder show up here too.</p>
+          <Link className="btn btn-primary" to="/discover">
+            Find something to read
+          </Link>
+        </div>
       )}
 
-      <div className="segmented kind-filter">
-        {(['all', 'audio', 'ebook'] as KindFilter[]).map((k) => (
-          <button key={k} className={kind === k ? 'active' : ''} onClick={() => setKind(k)}>
-            {k === 'all' ? 'All' : k === 'audio' ? 'Audiobooks' : 'Ebooks'}
-          </button>
-        ))}
-      </div>
+      {books && books.length > 0 && (
+        <>
+          {hero && !browsing && <ContinueCard book={hero} />}
 
-      <div className="toolbar">
-        <input
-          className="search-input"
-          placeholder="Search your library"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          type="search"
-        />
-        <div className="segmented">
-          {(['all', 'unstarted', 'finished'] as Filter[]).map((f) => (
-            <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
-              {f === 'all' ? 'All' : f === 'unstarted' ? 'New' : 'Done'}
-            </button>
-          ))}
-        </div>
-      </div>
+          {!browsing && inProgress.length > 1 && (
+            <section>
+              <h2 className="section-title">Also in progress</h2>
+              <div className="shelf">
+                {inProgress.slice(1).map((b) => (
+                  <BookCard key={b.id} book={b} />
+                ))}
+              </div>
+            </section>
+          )}
 
-      <div className="grid">
-        {shown.map((b) => (
-          <BookCard key={b.id} book={b} />
-        ))}
-      </div>
-      {shown.length === 0 && <p className="muted center">Nothing matches.</p>}
+          {!browsing && recentlyAdded.length > 0 && books.length > 6 && (
+            <section>
+              <h2 className="section-title">Recently added</h2>
+              <div className="shelf">
+                {recentlyAdded.map((b) => (
+                  <BookCard key={b.id} book={b} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <div className="library-tools">
+              <h2 className="section-title">All books</h2>
+              <label className="search-field">
+                <SearchIcon size={18} />
+                <input
+                  type="search"
+                  placeholder="Search your library"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  aria-label="Search your library"
+                />
+              </label>
+            </div>
+            <div className="shelf-chips" role="tablist" aria-label="Filter">
+              {SHELVES.map((s) => (
+                <button
+                  key={s.id}
+                  role="tab"
+                  aria-selected={shelf === s.id}
+                  className={`chip ${shelf === s.id ? 'chip-active' : ''}`}
+                  onClick={() => setShelf(s.id)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid">
+              {shown.map((b) => (
+                <BookCard key={b.id} book={b} />
+              ))}
+            </div>
+            {shown.length === 0 && <p className="muted center empty-inline">Nothing here yet.</p>}
+          </section>
+        </>
+      )}
     </div>
   );
 }
 
+/** Big "pick up where you left off" card for the most recent book. */
+function ContinueCard({ book }: { book: Book }) {
+  const navigate = useNavigate();
+  const player = usePlayer();
+  const [detail, setDetail] = useState<BookDetail | null>(null);
+  const isEbook = book.kind === 'ebook';
+  const isLoaded = !isEbook && player.book?.id === book.id;
+
+  // Fetch the audio details ahead of time so tapping Resume can start playback immediately
+  // (iOS only allows audio to start directly from a tap).
+  useEffect(() => {
+    if (isEbook || isLoaded) return;
+    let live = true;
+    api
+      .book(book.id)
+      .then((r) => live && setDetail(r.book))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [book.id, isEbook, isLoaded]);
+
+  const resume = () => {
+    if (isEbook) return navigate(`/read/${book.id}`);
+    if (isLoaded) player.play();
+    else void player.open(detail ?? book.id, { autoplay: true });
+    navigate('/player');
+  };
+
+  return (
+    <section className="continue-card">
+      <Link to={`/book/${book.id}`} className="continue-cover" aria-label={`${book.title} details`}>
+        <Cover src={coverUrl(book)} title={book.title} author={book.author} />
+      </Link>
+      <div className="continue-body">
+        <p className="kicker">{isEbook ? 'Continue reading' : 'Continue listening'}</p>
+        <h2 className="continue-title">{book.title}</h2>
+        {book.author && <p className="muted">{book.author}</p>}
+        <div className="progress-line" aria-label={progressLabel(book)}>
+          <div style={{ width: `${Math.round(fraction(book) * 100)}%` }} />
+        </div>
+        <p className="muted small">{progressLabel(book)}</p>
+        <button className="btn btn-primary" onClick={resume}>
+          {isEbook ? <BooksIcon size={18} /> : <PlayIcon size={18} />} {isEbook ? 'Read' : 'Resume'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function BookCard({ book }: { book: Book }) {
-  const pct = book.progress ? (book.progress.finished ? 100 : (book.progress.position / Math.max(book.duration, 1)) * 100) : 0;
+  const pct = Math.round(fraction(book) * 100);
   return (
     <Link to={`/book/${book.id}`} className="book-card">
       <div className="book-card-cover">
-        <Cover src={coverUrl(book)} title={book.title} />
+        <Cover src={coverUrl(book)} title={book.title} author={book.author} />
+        {book.kind === 'ebook' && <span className="kind-badge">Ebook</span>}
         {pct > 0 && (
           <div className="card-progress">
             <div style={{ width: `${pct}%` }} />
@@ -141,7 +261,7 @@ function BookCard({ book }: { book: Book }) {
       </div>
       <div className="book-card-title">{book.title}</div>
       <div className="book-card-sub">
-        {book.author ?? 'Unknown'} · {book.kind === 'ebook' ? 'Ebook' : formatDuration(book.duration)}
+        {book.author ?? 'Unknown author'} · {progressLabel(book)}
       </div>
     </Link>
   );
