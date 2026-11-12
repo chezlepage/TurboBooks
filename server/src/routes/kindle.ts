@@ -88,13 +88,17 @@ export async function kindleRoutes(app: FastifyInstance) {
       if (size > MAX_BYTES) return reply.code(400).send({ error: 'This book is too big for Kindle email (50 MB limit)' });
 
       try {
-        await mailer().sendMail({
+        const sent = await mailer().sendMail({
           from: config.smtpFrom,
           to,
           subject: book.title,
           text: `"${book.title}", sent from TurboBooks.`,
           attachments: [{ filename: fileName(book.title), path: book.path, contentType: 'application/epub+zip' }],
         });
+        // Logged (not just errors) so "did it actually send?" can be answered from the server logs.
+        console.log(
+          `[kindle] ${request.user!.username} sent book ${id} (${(size / 1e6).toFixed(1)} MB), mail server said: ${sent.response}`,
+        );
       } catch (err) {
         request.log.error({ err }, 'send to kindle failed');
         return reply
