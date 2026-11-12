@@ -11,6 +11,8 @@ const prefsSchema = z.object({
   autoSleepNightOnly: z.boolean(),
   readerTheme: z.enum(['dark', 'black', 'sepia']).default('dark'),
   readerFontSize: z.number().int().min(70).max(220).default(110),
+  /** Ebook typeface: the book's own, or one of the reader fonts (OpenDyslexic included). */
+  readerFont: z.enum(['book', 'literata', 'atkinson', 'opendyslexic']).catch('book'),
   /** Show my reading activity to other people on this server. */
   shareActivity: z.boolean().default(true),
   /** Books that never appear on my profile for others, even when sharing is on. */

@@ -2,13 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ePub from 'epubjs';
-import type { Book as EpubBook, NavItem, Rendition } from 'epubjs';
+import type { Contents, Book as EpubBook, NavItem, Rendition } from 'epubjs';
 import { api, beaconProgress, ebookFileUrl } from '../api';
 import type { BookDetail } from '../api';
 import { celebrateFinish } from '../components/FinishedSheet';
 import { ChevronLeftIcon, ListIcon } from '../components/Icons';
 import { loadPrefs, usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
+import '../styles-reader.css';
+import { READER_FONTS, applyBookFont, bookFontCss, ensureAppFontFaces } from '../readerFonts';
+import type { ReaderFont } from '../readerFonts';
 
 const THEMES: Record<Prefs['readerTheme'], { bg: string; fg: string; link: string; label: string }> = {
   dark: { bg: '#0b0b10', fg: '#d2cdc0', link: '#f2b45a', label: 'Dark' },
@@ -23,6 +26,9 @@ interface Relocated {
   start: { cfi: string; href: string; index: number; percentage?: number; displayed?: { page: number; total: number } };
   atEnd?: boolean;
 }
+
+/** Every book page currently on screen (epub.js returns an array, though its types say otherwise). */
+const pagesOf = (r: Rendition): Contents[] => ([] as Contents[]).concat(r.getContents() as unknown as Contents | Contents[]);
 
 const fileOf = (href: string) => decodeURIComponent(href.split('#')[0]).split('/').pop() ?? '';
 
@@ -109,6 +115,12 @@ export function ReaderPage() {
           });
         }
 
+        // Fonts: each book page gets the font faces and the reader's choice as it loads.
+        rendition.hooks.content.register((contents: Contents) => {
+          void contents.addStylesheetCss(bookFontCss(), 'tb-fonts');
+          applyBookFont(contents.document, loadPrefs().readerFont);
+        });
+
         // Apply colors before the first page renders so there's no bright flash.
         rendition.themes.select(loadPrefs().readerTheme);
         rendition.themes.fontSize(`${loadPrefs().readerFontSize}%`);
@@ -187,6 +199,16 @@ export function ReaderPage() {
     r.themes.select(prefs.readerTheme);
     r.themes.fontSize(`${prefs.readerFontSize}%`);
   }, [prefs.readerTheme, prefs.readerFontSize, ready]);
+
+  // ---- typeface -------------------------------------------------------------------
+  useEffect(ensureAppFontFaces, []);
+  useEffect(() => {
+    const r = renditionRef.current;
+    if (!r || !ready) return;
+    for (const page of pagesOf(r)) applyBookFont(page.document, prefs.readerFont);
+    // The text reflows with the new font: go back to the same spot rather than a shifted page.
+    if (cfiRef.current) void r.display(cfiRef.current);
+  }, [prefs.readerFont, ready]);
 
   // ---- save on hide; pick up progress from other devices on return ---------------
   useEffect(() => {
@@ -302,6 +324,25 @@ export function ReaderPage() {
                     A+
                   </button>
                 </div>
+                <h3 className="reader-sub">Font</h3>
+                <div className="reader-fonts" role="radiogroup" aria-label="Font">
+                  {(Object.keys(READER_FONTS) as ReaderFont[]).map((k) => (
+                    <button
+                      key={k}
+                      role="radio"
+                      aria-checked={prefs.readerFont === k}
+                      className={`reader-font ${prefs.readerFont === k ? 'active' : ''}`}
+                      onClick={() => setPrefs({ readerFont: k })}
+                    >
+                      <span className="reader-font-sample" style={{ fontFamily: READER_FONTS[k].family ?? 'inherit' }}>
+                        Aa
+                      </span>
+                      <span className="reader-font-name">{READER_FONTS[k].label}</span>
+                      <span className="reader-font-hint">{READER_FONTS[k].hint}</span>
+                    </button>
+                  ))}
+                </div>
+                <h3 className="reader-sub">Colors</h3>
                 <div className="chips tight">
                   {(Object.keys(THEMES) as Prefs['readerTheme'][]).map((k) => (
                     <button
