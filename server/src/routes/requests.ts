@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
 import * as shelfarr from '../lib/shelfarr.js';
 
@@ -69,6 +70,11 @@ export async function requestRoutes(app: FastifyInstance) {
 
   app.get('/api/wishlist', async () => {
     const { requests } = await shelfarr.listRequests();
+    const covers = new Map(
+      (db.prepare('SELECT request_id AS id, cover_url AS url FROM request_covers').all() as Array<{ id: number; url: string }>).map(
+        (c) => [c.id, c.url],
+      ),
+    );
     return {
       requests: requests
         .filter((r) => r.request.external_source === 'turbobooks')
@@ -80,6 +86,7 @@ export async function requestRoutes(app: FastifyInstance) {
           title: r.book.title,
           author: r.book.author,
           bookType: r.book.book_type,
+          coverUrl: covers.get(r.id) ?? null,
           createdAt: r.created_at,
         })),
     };
@@ -100,6 +107,10 @@ export async function requestRoutes(app: FastifyInstance) {
         external_user_id: String(request.user!.id),
       });
       if (res.errors?.length) return reply.code(422).send({ error: res.errors.join(', ') });
+      if (b.coverUrl) {
+        const save = db.prepare('INSERT OR REPLACE INTO request_covers (request_id, cover_url) VALUES (?, ?)');
+        for (const created of res.requests) save.run(created.id, b.coverUrl);
+      }
       return { ok: true };
     },
   );
@@ -123,6 +134,8 @@ export async function requestRoutes(app: FastifyInstance) {
           id: r.id,
           title: r.title,
           source: r.indexer ?? r.source,
+          // Torrents/Usenet come through Prowlarr; Z-Library, Anna's Archive etc. are plain file downloads.
+          direct: r.source !== 'prowlarr',
           seeders: r.seeders,
           sizeBytes: r.size_bytes,
           confidence: r.confidence_score,

@@ -1176,3 +1176,7 @@ section {
 .import-row-wide { flex-wrap: wrap; }
 .import-row-wide .import-text { flex: 1 1 0; min-width: 0; }
 .import-picker { flex: 0 0 100%; }
+
+.request-cover { width: 40px; height: 60px; flex: 0 0 auto; border-radius: 4px; object-fit: cover; font-size: 9px; }
+
+.badge-direct { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: .72rem; font-weight: 600; background: rgba(90, 170, 110, .22); color: #8fd6a0; }

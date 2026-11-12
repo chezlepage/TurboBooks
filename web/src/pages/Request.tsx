@@ -97,15 +97,17 @@ function ReleasePicker({ id, onDone, onError }: { id: number; onDone: () => void
           <div className="release-text">
             <div className="release-title">{decodeEntities(r.title)}</div>
             <div className="muted small">
+              {r.direct && <span className="badge-direct">Direct download</span>}
               {[
                 r.source,
                 formatSize(r.sizeBytes),
-                r.seeders != null ? `${r.seeders} seeders` : '',
+                !r.direct && r.seeders != null ? `${r.seeders} seeders` : '',
                 r.language,
                 r.confidence != null ? `${Math.round(r.confidence)}% match` : '',
               ]
                 .filter(Boolean)
-                .join(' · ')}
+                .join(' · ')
+                .replace(/^/, r.direct ? ' · ' : '')}
             </div>
           </div>
           <button className="btn btn-small btn-primary" disabled={grabbing !== null} onClick={() => grab(r)}>
@@ -236,6 +238,7 @@ export function Request() {
           <h2 className="section-title">Your requests</h2>
           {requests.slice(0, 15).map((r) => (
             <div key={r.id} className={`import-row ${picking === r.id ? 'import-row-wide' : ''}`}>
+              <Cover src={r.coverUrl} title={r.title} className="request-cover" />
               <div className="import-text">
                 <div className="import-title">
                   {r.title} <span className="muted small">({r.bookType})</span>

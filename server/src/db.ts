@@ -106,6 +106,13 @@ const migrations: string[] = [
   ALTER TABLE books ADD COLUMN kind TEXT NOT NULL DEFAULT 'audio';
   ALTER TABLE progress ADD COLUMN locator TEXT;
   `,
+  // v4: cover art for Shelfarr requests (Shelfarr's API does not return it).
+  `
+  CREATE TABLE request_covers (
+    request_id INTEGER PRIMARY KEY,
+    cover_url  TEXT NOT NULL
+  );
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

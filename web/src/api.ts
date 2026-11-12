@@ -118,6 +118,7 @@ export interface Release {
   id: number;
   title: string;
   source: string | null;
+  direct: boolean;
   seeders: number | null;
   sizeBytes: number | null;
   confidence: number | null;
@@ -131,6 +132,7 @@ export interface WishRequest {
   title: string;
   author: string | null;
   bookType: string;
+  coverUrl: string | null;
   createdAt: string;
 }
 
