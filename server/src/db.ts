@@ -85,6 +85,22 @@ const migrations: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // v2: per-user preferences and sleep-timer marks, so they follow the user across devices.
+  `
+  CREATE TABLE user_prefs (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    data       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE sleep_marks (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id  INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    position REAL NOT NULL,
+    at       INTEGER NOT NULL,
+    PRIMARY KEY (user_id, book_id)
+  );
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

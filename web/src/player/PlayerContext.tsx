@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import { api, beaconProgress, coverUrl, streamUrl } from '../api';
 import type { BookDetail, Chapter } from '../api';
-import { isNight, loadPrefs } from '../prefs';
+import { isNight, loadPrefs, syncPrefs } from '../prefs';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -19,10 +19,6 @@ export const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 const LS_LAST_BOOK = 'tb.lastBook';
 const LS_RATE = 'tb.rate';
-const LS_SLEEP_MARK = 'tb.sleepMark';
-/** How long a "you fell asleep here" mark stays offered. */
-const SLEEP_MARK_TTL = 18 * 60 * 60 * 1000;
-
 export interface SleepMark {
   bookId: number;
   /** Book position when the sleep timer was set (you were still awake). */
@@ -31,14 +27,6 @@ export interface SleepMark {
   at: number;
 }
 
-function readSleepMark(bookId: number): SleepMark | null {
-  try {
-    const m = JSON.parse(localStorage.getItem(LS_SLEEP_MARK) ?? 'null') as SleepMark | null;
-    return m && m.bookId === bookId && Date.now() - m.at < SLEEP_MARK_TTL ? m : null;
-  } catch {
-    return null;
-  }
-}
 
 const lsGet = (key: string) => {
   try {
@@ -143,6 +131,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const pausedAtRef = useRef<number | null>(null);
   const stoppedBySleepRef = useRef(false);
   const lastSaveRef = useRef(0);
+  /** Position last written to the server; idle devices skip saving so they never clobber newer progress. */
+  const lastSavedPosRef = useRef<number | null>(null);
+  /** Server timestamp of the newest progress this device knows about. */
+  const serverUpdatedAtRef = useRef(0);
   /** Book position when the current sleep timer was started. */
   const sleepStartRef = useRef<number | null>(null);
 
@@ -168,8 +160,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (!b) return;
       const position = currentPosition();
       lastSaveRef.current = Date.now();
+      const unchanged = lastSavedPosRef.current !== null && Math.abs(position - lastSavedPosRef.current) < 1;
+      if (unchanged && opts.finished === undefined) return;
+      lastSavedPosRef.current = position;
       if (opts.beacon) beaconProgress(b.id, position);
-      else api.saveProgress(b.id, position, opts.finished).catch(() => undefined);
+      else
+        api
+          .saveProgress(b.id, position, opts.finished)
+          .then((r) => {
+            serverUpdatedAtRef.current = Math.max(serverUpdatedAtRef.current, r.updatedAt);
+          })
+          .catch(() => undefined);
     },
     [currentPosition],
   );
@@ -205,8 +206,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const b = bookRef.current;
     if (b && sleepStartRef.current !== null) {
       const mark: SleepMark = { bookId: b.id, position: sleepStartRef.current, at: Date.now() };
-      lsSet(LS_SLEEP_MARK, JSON.stringify(mark));
       setSleepMark(mark);
+      api.setSleepMark(b.id, mark.position).catch(() => undefined);
     }
     clearSleep();
     stoppedBySleepRef.current = true;
@@ -474,7 +475,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         pausedAtRef.current = null;
         bookRef.current = detail;
         setBook(detail);
-        setSleepMark(readSleepMark(detail.id));
+        setSleepMark(detail.sleepMark ? { bookId: detail.id, ...detail.sleepMark } : null);
+        lastSavedPosRef.current = start;
+        serverUpdatedAtRef.current = detail.progress?.updatedAt ?? 0;
         lsSet(LS_LAST_BOOK, String(bookId));
         const idx = trackIndexFor(detail, start);
         loadTrack(idx, start - detail.tracks[idx].start, !!opts.autoplay);
@@ -491,8 +494,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const dismissSleepMark = useCallback(() => {
-    lsSet(LS_SLEEP_MARK, null);
+    const b = bookRef.current;
     setSleepMark(null);
+    if (b) api.clearSleepMark(b.id).catch(() => undefined);
   }, []);
 
   const jumpToSleepMark = useCallback(() => {
@@ -530,6 +534,44 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (last) void open(last, { autoplay: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---- cross-device sync ----------------------------------------------------
+  // When the app comes back to the foreground, pick up progress (and sleep marks / prefs)
+  // made on another device, but only while paused, so we never yank someone mid-listen.
+  useEffect(() => {
+    void syncPrefs();
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return;
+      void syncPrefs();
+      const b = bookRef.current;
+      const audio = audioRef.current;
+      if (!b || !audio || !audio.paused) return;
+      try {
+        const { book: fresh } = await api.book(b.id);
+        if (bookRef.current?.id !== fresh.id || !audio.paused) return;
+        setSleepMark(fresh.sleepMark ? { bookId: fresh.id, ...fresh.sleepMark } : null);
+        const p = fresh.progress;
+        if (!p || p.updatedAt <= serverUpdatedAtRef.current) return;
+        serverUpdatedAtRef.current = p.updatedAt;
+        const target = p.finished ? 0 : p.position;
+        if (Math.abs(target - currentPosition()) > 5) {
+          // Someone listened elsewhere: this is a fresh starting point, not a pause to rewind from.
+          pausedAtRef.current = null;
+          stoppedBySleepRef.current = false;
+          lastSavedPosRef.current = target;
+          seek(target);
+        }
+      } catch {
+        /* offline: keep local position */
+      }
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [currentPosition, seek]);
 
   // ---- lock screen / headphone controls (Media Session API) ----------------
   const chapterTitle = chapterAt(book, clock.position)?.title;

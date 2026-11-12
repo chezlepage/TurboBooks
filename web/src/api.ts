@@ -41,6 +41,8 @@ export interface Chapter {
 export interface BookDetail extends Book {
   tracks: Track[];
   chapters: Chapter[];
+  /** Where this user last set a sleep timer that then stopped playback (recent only). */
+  sleepMark: { position: number; at: number } | null;
 }
 
 export interface SearchResult {
@@ -127,7 +129,12 @@ export const api = {
   books: () => request<{ books: Book[] }>('GET', '/api/books'),
   book: (id: number) => request<{ book: BookDetail }>('GET', `/api/books/${id}`),
   saveProgress: (id: number, position: number, finished?: boolean) =>
-    request('PUT', `/api/books/${id}/progress`, { position, finished }),
+    request<{ ok: true; updatedAt: number }>('PUT', `/api/books/${id}/progress`, { position, finished }),
+  setSleepMark: (id: number, position: number) =>
+    request<{ sleepMark: { position: number; at: number } }>('PUT', `/api/books/${id}/sleep-mark`, { position }),
+  clearSleepMark: (id: number) => request('DELETE', `/api/books/${id}/sleep-mark`),
+  getPrefs: () => request<{ prefs: import('./prefs').Prefs | null }>('GET', '/api/me/prefs'),
+  putPrefs: (prefs: import('./prefs').Prefs) => request('PUT', '/api/me/prefs', prefs),
   resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
   deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),
 

@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { db, now } from '../db.js';
 import { requireAdmin, requireUser } from '../lib/auth.js';
 import { sendFileWithRange } from '../lib/stream.js';
+import { getSleepMark } from './prefs.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -81,7 +82,7 @@ export async function bookRoutes(app: FastifyInstance) {
     const chapters = db
       .prepare('SELECT idx, title, start, end FROM chapters WHERE book_id = ? ORDER BY idx')
       .all(id);
-    return { book: { ...toBook(row), tracks, chapters } };
+    return { book: { ...toBook(row), tracks, chapters, sleepMark: getSleepMark(request.user!.id, id) } };
   });
 
   app.get('/api/books/:id/cover', async (request, reply) => {
@@ -107,11 +108,12 @@ export async function bookRoutes(app: FastifyInstance) {
     if (!book) return reply.code(404).send({ error: 'Book not found' });
     const position = Math.min(body.data.position, book.duration);
     const finished = body.data.finished ?? position >= book.duration - 5;
+    const updatedAt = now();
     db.prepare(
       `INSERT INTO progress (user_id, book_id, position, finished, updated_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (user_id, book_id) DO UPDATE SET position = excluded.position, finished = excluded.finished, updated_at = excluded.updated_at`,
-    ).run(request.user!.id, id, position, finished ? 1 : 0, now());
-    return { ok: true };
+    ).run(request.user!.id, id, position, finished ? 1 : 0, updatedAt);
+    return { ok: true, updatedAt };
   };
   app.put('/api/books/:id/progress', saveProgress);
   // POST variant so the browser can use navigator.sendBeacon when the page is closed.
