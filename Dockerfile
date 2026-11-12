@@ -10,7 +10,8 @@ COPY web/package.json web/
 RUN npm ci
 COPY server server
 COPY web web
-RUN npm run build && npm prune --omit=dev
+# npm may nest a workspace's deps under server/node_modules; make sure the dir exists for COPY below.
+RUN npm run build && npm prune --omit=dev && mkdir -p server/node_modules
 
 # ---- runtime ----
 FROM node:22-bookworm-slim
@@ -21,6 +22,7 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/package.json ./server/
+COPY --from=build /app/server/node_modules ./server/node_modules
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/web/dist ./web/dist
 ENV NODE_ENV=production \
