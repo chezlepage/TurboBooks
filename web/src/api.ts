@@ -107,6 +107,13 @@ export interface WishResult {
   coverUrl: string | null;
   series: string | null;
 }
+export interface Edition {
+  thumbUrl: string;
+  coverUrl: string;
+  year: string | null;
+  publisher: string | null;
+  format: string | null;
+}
 export interface Release {
   id: number;
   title: string;
@@ -195,15 +202,17 @@ export const api = {
   wishlistSearch: (q: string) =>
     request<{ results: WishResult[] }>('GET', `/api/wishlist/search?q=${encodeURIComponent(q)}`),
   wishlist: () => request<{ requests: WishRequest[] }>('GET', '/api/wishlist'),
-  wishlistRequest: (r: WishResult, bookType: 'audiobook' | 'ebook') =>
+  wishlistRequest: (r: WishResult, bookType: 'audiobook' | 'ebook', coverUrl?: string | null) =>
     request('POST', '/api/wishlist', {
       workId: r.workId,
       bookType,
       title: r.title,
       author: r.author,
-      coverUrl: r.coverUrl,
+      coverUrl: coverUrl ?? r.coverUrl,
       year: r.year,
     }),
+  wishlistEditions: (workId: string) =>
+    request<{ editions: Edition[] }>('GET', `/api/wishlist/editions?workId=${encodeURIComponent(workId)}`),
   wishlistReleases: (id: number) => request<{ releases: Release[] }>('GET', `/api/wishlist/${id}/releases`),
   wishlistGrab: (id: number, releaseId: number) => request('POST', `/api/wishlist/${id}/grab`, { releaseId }),
   wishlistRetry: (id: number) => request('POST', `/api/wishlist/${id}/retry`, {}),

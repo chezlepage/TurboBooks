@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import type { Release, WishRequest, WishResult } from '../api';
+import type { Edition, Release, WishRequest, WishResult } from '../api';
 import { Cover } from '../components/Cover';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -22,6 +22,41 @@ const RETRYABLE = ['failed', 'not_found'];
 
 const formatSize = (b: number | null) =>
   b ? (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`) : '';
+
+/** Strip of cover art for the different editions of a book; tapping one selects it. */
+function EditionStrip({ workId, selected, onPick }: { workId: string; selected: string | null; onPick: (url: string) => void }) {
+  const [editions, setEditions] = useState<Edition[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    api
+      .wishlistEditions(workId)
+      .then((r) => setEditions(r.editions))
+      .catch(() => setFailed(true));
+  }, [workId]);
+
+  if (failed) return <p className="muted small">Couldn't load other covers.</p>;
+  if (!editions) return <p className="muted small">Loading covers…</p>;
+  if (editions.length === 0) return <p className="muted small">No other covers found for this book.</p>;
+  return (
+    <div className="edition-strip" role="listbox" aria-label="Covers">
+      {editions.map((e) => (
+        <button
+          key={e.coverUrl}
+          type="button"
+          role="option"
+          aria-selected={selected === e.coverUrl}
+          className={`edition ${selected === e.coverUrl ? 'edition-active' : ''}`}
+          onClick={() => onPick(e.coverUrl)}
+          title={[e.publisher, e.year, e.format].filter(Boolean).join(' · ')}
+        >
+          <img src={e.thumbUrl} alt="" loading="lazy" />
+          <span className="small muted">{e.year ?? ''}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** Lets the user choose which release Shelfarr downloads when it did not pick one itself. */
 function ReleasePicker({ id, onDone, onError }: { id: number; onDone: () => void; onError: (m: string) => void }) {
@@ -91,6 +126,9 @@ export function Request() {
   const [sent, setSent] = useState<Set<string>>(new Set());
   /** Request whose release list is open. */
   const [picking, setPicking] = useState<number | null>(null);
+  /** Cover chosen per work, and which result has its covers strip open. */
+  const [covers, setCovers] = useState<Record<string, string>>({});
+  const [coversOpen, setCoversOpen] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api
@@ -140,7 +178,7 @@ export function Request() {
   const request = async (r: WishResult, type: 'audiobook' | 'ebook') => {
     setError(null);
     try {
-      await api.wishlistRequest(r, type);
+      await api.wishlistRequest(r, type, covers[r.workId]);
       setSent((s) => new Set(s).add(`${r.workId}:${type}`));
       refresh();
     } catch (err) {
@@ -245,7 +283,7 @@ export function Request() {
         <ul className="result-list">
           {results.map((r) => (
             <li key={r.workId} className="result">
-              <Cover src={r.coverUrl} title={r.title} className="result-cover" />
+              <Cover src={covers[r.workId] ?? r.coverUrl} title={r.title} className="result-cover" />
               <div className="result-body">
                 <div className="result-title">{r.title}</div>
                 <div className="muted small">
@@ -262,7 +300,22 @@ export function Request() {
                       </button>
                     );
                   })}
+                  {r.workId.startsWith('openlibrary:') && (
+                    <button
+                      className="btn btn-small btn-ghost"
+                      onClick={() => setCoversOpen(coversOpen === r.workId ? null : r.workId)}
+                    >
+                      {coversOpen === r.workId ? 'Hide covers' : 'Covers'}
+                    </button>
+                  )}
                 </div>
+                {coversOpen === r.workId && (
+                  <EditionStrip
+                    workId={r.workId}
+                    selected={covers[r.workId] ?? null}
+                    onPick={(url) => setCovers((c) => ({ ...c, [r.workId]: url }))}
+                  />
+                )}
               </div>
             </li>
           ))}

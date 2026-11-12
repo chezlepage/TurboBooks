@@ -53,6 +53,20 @@ export async function requestRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get('/api/wishlist/editions', async (request) => {
+    const { workId } = z.object({ workId: z.string().max(100) }).parse(request.query);
+    const list = await shelfarr.editions(workId);
+    return {
+      editions: list.map((e) => ({
+        thumbUrl: `https://covers.openlibrary.org/b/id/${e.coverId}-M.jpg`,
+        coverUrl: `https://covers.openlibrary.org/b/id/${e.coverId}-L.jpg`,
+        year: e.year,
+        publisher: e.publisher,
+        format: e.format,
+      })),
+    };
+  });
+
   app.get('/api/wishlist', async () => {
     const { requests } = await shelfarr.listRequests();
     return {

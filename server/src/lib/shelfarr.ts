@@ -95,3 +95,49 @@ export const releases = (id: number) =>
 
 export const grabRelease = (id: number, searchResultId: number) =>
   call<unknown>('POST', `/requests/${id}/grab`, { search_result_id: searchResultId });
+
+export interface Edition {
+  coverId: number;
+  year: string | null;
+  publisher: string | null;
+  format: string | null;
+}
+
+const editionCache = new Map<string, { at: number; editions: Edition[] }>();
+
+/** Distinct cover images for a work's editions, from Open Library (Shelfarr's search has no edition data). */
+export async function editions(workId: string): Promise<Edition[]> {
+  const m = /^openlibrary:(OL\d+W)$/.exec(workId);
+  if (!m) return [];
+  const hit = editionCache.get(m[1]);
+  if (hit && Date.now() - hit.at < 60 * 60 * 1000) return hit.editions;
+  let data: { entries?: Array<Record<string, unknown>> };
+  try {
+    const res = await fetch(`https://openlibrary.org/works/${m[1]}/editions.json?limit=100`, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    data = (await res.json()) as typeof data;
+  } catch {
+    throw new ShelfarrError('Could not load editions, try again in a bit');
+  }
+  const seen = new Set<number>();
+  const out: Edition[] = [];
+  for (const e of data.entries ?? []) {
+    const covers = (e.covers as number[] | undefined)?.filter((c) => c > 0) ?? [];
+    const langs = (e.languages as Array<{ key: string }> | undefined)?.map((l) => l.key) ?? [];
+    if (!covers.length || seen.has(covers[0])) continue;
+    if (langs.length && !langs.includes('/languages/eng')) continue; // English editions only
+    seen.add(covers[0]);
+    out.push({
+      coverId: covers[0],
+      year: typeof e.publish_date === 'string' ? e.publish_date.match(/\d{4}/)?.[0] ?? null : null,
+      publisher: (e.publishers as string[] | undefined)?.[0] ?? null,
+      format: typeof e.physical_format === 'string' ? e.physical_format : null,
+    });
+    if (out.length >= 30) break;
+  }
+  editionCache.set(m[1], { at: Date.now(), editions: out });
+  return out;
+}
