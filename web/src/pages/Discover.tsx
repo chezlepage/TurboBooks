@@ -1,20 +1,45 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api, formatDuration } from '../api';
-import type { ImportJob, SearchResult } from '../api';
+import type { Category, ImportJob, SearchParams, SearchResult } from '../api';
 import { Cover } from '../components/Cover';
 import { CheckIcon, PlusIcon } from '../components/Icons';
 
-const SUGGESTIONS = ['Sherlock Holmes', 'Jane Austen', 'Dracula', 'Jules Verne', 'Winnie', 'Fairy tales', 'Lovecraft', 'Dickens'];
+const LS_ENGLISH = 'tb.discover.english';
+const RECENT_DONE_MS = 30 * 60 * 1000;
+
+const readEnglish = () => {
+  try {
+    return localStorage.getItem(LS_ENGLISH) !== '0';
+  } catch {
+    return true;
+  }
+};
 
 export function Discover() {
+  const navigate = useNavigate();
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [category, setCategory] = useState('bedtime');
   const [query, setQuery] = useState('');
+  /** The search actually shown (the input can change without searching). */
+  const [activeQuery, setActiveQuery] = useState<string | null>(null);
+  const [english, setEnglish] = useState(readEnglish);
   const [results, setResults] = useState<SearchResult[] | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imports, setImports] = useState<ImportJob[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    api
+      .categories()
+      .then((r) => setCategories(r.categories))
+      .catch(() => undefined);
+  }, []);
 
   const refreshImports = useCallback(() => {
     api
@@ -31,23 +56,60 @@ export function Discover() {
     return () => window.clearInterval(id);
   }, [active, refreshImports]);
 
-  const runSearch = async (q: string) => {
-    if (q.trim().length < 2) return;
-    setQuery(q);
-    setSearching(true);
+  const load = useCallback(async (params: SearchParams, append: boolean) => {
+    const id = ++requestId.current;
+    setLoading(true);
     setError(null);
     try {
-      setResults((await api.search(q)).results);
+      const r = await api.search(params);
+      if (id !== requestId.current) return; // a newer request superseded this one
+      setResults((prev) => {
+        if (!append || !prev) return r.results;
+        const have = new Set(prev.map((x) => x.id));
+        return [...prev, ...r.results.filter((x) => !have.has(x.id))];
+      });
+      setHasMore(r.hasMore);
+      setPage(params.page ?? 0);
     } catch (e) {
-      setError((e as Error).message);
+      if (id === requestId.current) setError((e as Error).message);
     } finally {
-      setSearching(false);
+      if (id === requestId.current) setLoading(false);
     }
-  };
+  }, []);
+
+  const currentParams = (pageNo: number): SearchParams =>
+    activeQuery ? { q: activeQuery, english, page: pageNo } : { category, english, page: pageNo };
+
+  // Reload when the shelf, search, or language filter changes.
+  useEffect(() => {
+    void load(currentParams(0), false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, activeQuery, english, load]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    void runSearch(query);
+    const q = query.trim();
+    if (q.length >= 2) setActiveQuery(q);
+  };
+
+  const clearSearch = () => {
+    setQuery('');
+    setActiveQuery(null);
+  };
+
+  const pickCategory = (id: string) => {
+    clearSearch();
+    setCategory(id);
+  };
+
+  const toggleEnglish = () => {
+    const next = !english;
+    setEnglish(next);
+    try {
+      localStorage.setItem(LS_ENGLISH, next ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
   };
 
   const add = async (r: SearchResult) => {
@@ -60,45 +122,62 @@ export function Discover() {
     }
   };
 
-  const statusFor = (r: SearchResult) => {
-    const job = imports.find((i) => i.sourceId === r.id && i.status !== 'failed');
-    if (r.inLibrary || job?.status === 'done') return 'done';
-    if (job) return 'busy';
-    return null;
-  };
+  /** Library id if this recording is (now) in the library. */
+  const bookIdFor = (r: SearchResult) =>
+    r.bookId ?? imports.find((i) => i.sourceId === r.id && i.status === 'done')?.bookId ?? null;
+  const isBusy = (r: SearchResult) =>
+    imports.some((i) => i.sourceId === r.id && (i.status === 'queued' || i.status === 'downloading'));
 
-  const visibleImports = imports.slice(0, 8);
+  // Show running and failed jobs, plus ones that finished recently; one row per book.
+  const visibleImports = imports
+    .filter((i, idx) => imports.findIndex((j) => j.sourceId === i.sourceId) === idx)
+    .filter((i) => i.status !== 'done' || Date.now() - i.updatedAt < RECENT_DONE_MS)
+    .slice(0, 6);
 
   return (
     <div className="page">
       <h1>Discover</h1>
       <p className="muted small">
-        Free public-domain audiobooks from <a href="https://librivox.org" target="_blank" rel="noreferrer">LibriVox</a>,
-        read by volunteers, downloaded from the Internet Archive. Most popular first.
+        Free public-domain audiobooks from{' '}
+        <a href="https://librivox.org" target="_blank" rel="noreferrer">
+          LibriVox
+        </a>
+        , read by volunteers. Most popular first.
       </p>
 
       <form className="search-row" onSubmit={submit}>
         <input
           className="search-input"
           type="search"
-          placeholder="Title or author"
+          placeholder="Search title or author"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!e.target.value) setActiveQuery(null);
+          }}
         />
-        <button className="btn btn-primary" disabled={searching || query.trim().length < 2}>
-          {searching ? '…' : 'Search'}
+        <button className="btn btn-primary" disabled={query.trim().length < 2}>
+          Search
         </button>
       </form>
 
-      {!results && !searching && (
-        <div className="chips">
-          {SUGGESTIONS.map((s) => (
-            <button key={s} className="chip" onClick={() => void runSearch(s)}>
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="shelf-chips" role="tablist" aria-label="Categories">
+        {categories.map((c) => (
+          <button
+            key={c.id}
+            role="tab"
+            aria-selected={!activeQuery && category === c.id}
+            className={`chip ${!activeQuery && category === c.id ? 'chip-active' : ''}`}
+            onClick={() => pickCategory(c.id)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <label className="checkbox small">
+        <input type="checkbox" checked={english} onChange={toggleEnglish} /> English only
+      </label>
 
       {visibleImports.length > 0 && (
         <section className="imports">
@@ -110,18 +189,18 @@ export function Discover() {
                 <div className="muted small">
                   {job.status === 'queued' && 'Waiting…'}
                   {job.status === 'downloading' && `Downloading ${Math.round(job.progress * 100)}%`}
-                  {job.status === 'done' && 'In your library'}
+                  {job.status === 'done' && 'Ready in your library'}
                   {job.status === 'failed' && <span className="error">Failed: {job.error}</span>}
                 </div>
-                {job.status === 'downloading' && (
+                {(job.status === 'downloading' || job.status === 'queued') && (
                   <div className="bar">
                     <div style={{ width: `${Math.max(3, job.progress * 100)}%` }} />
                   </div>
                 )}
               </div>
               {job.status === 'done' && job.bookId && (
-                <Link className="btn btn-small" to={`/book/${job.bookId}`}>
-                  Open
+                <Link className="btn btn-small btn-primary" to={`/book/${job.bookId}`}>
+                  Listen
                 </Link>
               )}
               {job.status === 'failed' && (
@@ -144,52 +223,70 @@ export function Discover() {
       )}
 
       {error && <p className="error">{error}</p>}
-      {searching && <p className="muted">Searching…</p>}
 
-      {results && !searching && (
-        <section>
-          <h2 className="section-title">
-            {results.length} result{results.length === 1 ? '' : 's'}
-          </h2>
-          {results.length === 0 && <p className="muted">Nothing found. Try fewer words or just the author's name.</p>}
-          <ul className="result-list">
-            {results.map((r) => {
-              const status = statusFor(r);
-              const open = expanded === r.id;
-              return (
-                <li key={r.id} className="result">
-                  <Cover src={r.coverUrl} title={r.title} className="result-cover" />
-                  <div className="result-body">
-                    <div className="result-title">{r.title}</div>
-                    <div className="muted small">
-                      {r.author}
-                      {r.durationSecs > 0 && ` · ${formatDuration(r.durationSecs)}`}
-                      {r.language && r.language !== 'English' && ` · ${r.language}`}
-                    </div>
-                    {r.description && (
-                      <p className={`result-desc ${open ? '' : 'clamped'}`} onClick={() => setExpanded(open ? null : r.id)}>
-                        {r.description}
-                      </p>
-                    )}
+      {activeQuery && (
+        <div className="search-label">
+          <span>
+            Results for <strong>“{activeQuery}”</strong>
+          </span>
+          <button className="btn btn-small btn-ghost" onClick={clearSearch}>
+            Clear
+          </button>
+        </div>
+      )}
+
+      {results && results.length === 0 && !loading && (
+        <p className="muted">Nothing found. Try fewer words, just the author's name, or turn off "English only".</p>
+      )}
+
+      {results && (
+        <ul className="result-list">
+          {results.map((r) => {
+            const bookId = bookIdFor(r);
+            const busy = isBusy(r);
+            const open = expanded === r.id;
+            return (
+              <li key={r.id} className="result">
+                <Cover src={r.coverUrl} title={r.title} className="result-cover" />
+                <div className="result-body">
+                  <div className="result-title">{r.title}</div>
+                  <div className="muted small">
+                    {r.author}
+                    {r.durationSecs > 0 && ` · ${formatDuration(r.durationSecs)}`}
+                    {r.language && r.language !== 'English' && ` · ${r.language}`}
                   </div>
-                  <div className="result-action">
-                    {status === 'done' ? (
-                      <span className="added" aria-label="In library">
-                        <CheckIcon size={22} />
-                      </span>
-                    ) : status === 'busy' ? (
-                      <span className="spinner small" aria-label="Downloading" />
-                    ) : (
-                      <button className="icon-btn add-btn" onClick={() => add(r)} aria-label={`Add ${r.title}`}>
-                        <PlusIcon size={22} />
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+                  {r.description && (
+                    <p className={`result-desc ${open ? '' : 'clamped'}`} onClick={() => setExpanded(open ? null : r.id)}>
+                      {r.description}
+                    </p>
+                  )}
+                </div>
+                <div className="result-action">
+                  {bookId ? (
+                    <button className="icon-btn added" onClick={() => navigate(`/book/${bookId}`)} aria-label={`Open ${r.title}`}>
+                      <CheckIcon size={22} />
+                    </button>
+                  ) : busy ? (
+                    <span className="spinner small" aria-label="Downloading" />
+                  ) : (
+                    <button className="icon-btn add-btn" onClick={() => add(r)} aria-label={`Add ${r.title}`}>
+                      <PlusIcon size={22} />
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {loading && <p className="muted center">Loading…</p>}
+      {!loading && hasMore && results && results.length > 0 && (
+        <div className="center load-more">
+          <button className="btn" onClick={() => void load(currentParams(page + 1), true)}>
+            Load more
+          </button>
+        </div>
       )}
     </div>
   );

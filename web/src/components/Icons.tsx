@@ -110,3 +110,9 @@ export const PlusIcon = (p: P) => (
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
+export const DimIcon = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" />
+  </svg>
+);

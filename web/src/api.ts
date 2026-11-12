@@ -53,8 +53,21 @@ export interface SearchResult {
   durationSecs: number;
   coverUrl: string;
   sourceUrl: string;
-  inLibrary: boolean;
+  /** Set when this recording is already in the library. */
+  bookId: number | null;
   importStatus: string | null;
+}
+
+export interface Category {
+  id: string;
+  label: string;
+}
+
+export interface SearchParams {
+  q?: string;
+  category?: string;
+  english?: boolean;
+  page?: number;
 }
 
 export interface ImportJob {
@@ -65,6 +78,7 @@ export interface ImportJob {
   progress: number;
   error: string | null;
   bookId: number | null;
+  updatedAt: number;
 }
 
 export interface AdminUser {
@@ -117,7 +131,15 @@ export const api = {
   resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
   deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),
 
-  search: (q: string) => request<{ results: SearchResult[] }>('GET', `/api/discover/search?q=${encodeURIComponent(q)}`),
+  search: (p: SearchParams) => {
+    const qs = new URLSearchParams();
+    if (p.q) qs.set('q', p.q);
+    if (p.category) qs.set('category', p.category);
+    qs.set('english', p.english === false ? '0' : '1');
+    qs.set('page', String(p.page ?? 0));
+    return request<{ results: SearchResult[]; hasMore: boolean }>('GET', `/api/discover/search?${qs}`);
+  },
+  categories: () => request<{ categories: Category[] }>('GET', '/api/discover/categories'),
   importBook: (id: string, title: string) => request<{ importId: number }>('POST', '/api/discover/import', { id, title }),
   imports: () => request<{ imports: ImportJob[] }>('GET', '/api/imports'),
   retryImport: (id: number) => request('POST', `/api/imports/${id}/retry`, {}),

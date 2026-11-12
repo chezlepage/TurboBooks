@@ -17,9 +17,8 @@ import { discoverRoutes } from './routes/discover.js';
 
 const app = Fastify({
   trustProxy: config.trustProxy,
-  logger: { level: process.env.LOG_LEVEL ?? 'info' },
-  // Audio streaming makes many range requests; per-request logs would be noise.
-  disableRequestLogging: process.env.LOG_LEVEL !== 'debug',
+  // Request logs are at "info"; audio streaming makes many range requests, so default to "warn".
+  logger: { level: process.env.LOG_LEVEL ?? 'warn' },
   bodyLimit: 64 * 1024,
 });
 
@@ -68,7 +67,7 @@ const userCount = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: n
 if (userCount === 0) {
   if (config.adminUsername && config.adminPassword) {
     await createUser(config.adminUsername, config.adminPassword, true);
-    app.log.info(`Created admin user "${config.adminUsername}"`);
+    console.log(`Created admin user "${config.adminUsername}"`);
   } else {
     app.log.warn('No users exist. Set ADMIN_USERNAME and ADMIN_PASSWORD, or run: npm run create-user -- <name> --admin');
   }
@@ -78,6 +77,7 @@ purgeExpiredSessions();
 setInterval(purgeExpiredSessions, 6 * 60 * 60 * 1000).unref();
 
 await app.listen({ port: config.port, host: config.host });
+console.log(`TurboBooks listening on ${config.host}:${config.port}`);
 
 void scanLibrary().then(resumeImports);
 if (config.scanIntervalMinutes > 0) {

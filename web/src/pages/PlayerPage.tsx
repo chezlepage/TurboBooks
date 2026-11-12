@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { coverUrl, formatTime } from '../api';
+import { coverUrl, formatDuration, formatTime } from '../api';
 import { Cover } from '../components/Cover';
 import {
   BackIcon,
   ChevronDownIcon,
+  DimIcon,
   ForwardIcon,
   ListIcon,
   MoonIcon,
@@ -22,6 +23,7 @@ export function PlayerPage() {
   const { position, sleepRemaining } = useClock();
   const navigate = useNavigate();
   const [sleepOpen, setSleepOpen] = useState(false);
+  const [night, setNight] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const { book } = player;
 
@@ -58,9 +60,14 @@ export function PlayerPage() {
           <ChevronDownIcon size={28} />
         </button>
         <span className="muted small">{hasChapters && chapter ? `Chapter ${chapter.idx + 1} of ${book.chapters.length}` : ''}</span>
-        <Link className="icon-btn" to={`/book/${book.id}`} aria-label="Chapters and details">
-          <ListIcon size={24} />
-        </Link>
+        <span className="header-actions">
+          <button className="icon-btn" onClick={() => setNight(true)} aria-label="Night screen">
+            <DimIcon size={22} />
+          </button>
+          <Link className="icon-btn" to={`/book/${book.id}`} aria-label="Chapters and details">
+            <ListIcon size={24} />
+          </Link>
+        </span>
       </header>
 
       <div className="player-art">
@@ -97,6 +104,20 @@ export function PlayerPage() {
           <span>-{formatTime(segLength - inSeg)}</span>
         </div>
       </div>
+
+      {player.sleepMark && position - player.sleepMark.position > 60 && (
+        <div className="mark-banner">
+          <button className="mark-jump" onClick={player.jumpToSleepMark}>
+            <MoonIcon size={18} />
+            <span>
+              Dozed off? <strong>Go back {formatDuration(position - player.sleepMark.position)}</strong> to where you set the timer
+            </span>
+          </button>
+          <button className="icon-btn small-x" onClick={player.dismissSleepMark} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      )}
 
       {player.error && <p className="error center">{player.error}</p>}
 
@@ -135,6 +156,28 @@ export function PlayerPage() {
       </div>
 
       {sleepOpen && <SleepSheet onClose={() => setSleepOpen(false)} />}
+
+      {night && (
+        <div className="night" role="dialog" aria-label="Night screen">
+          <button className="night-exit" onClick={() => setNight(false)}>
+            Tap to exit night screen
+          </button>
+          <div className="night-controls">
+            <button className="night-small" onClick={() => player.skip(-30)} aria-label="Back 30 seconds">
+              <BackIcon size={34} seconds={30} />
+            </button>
+            <button className="night-play" onClick={player.toggle} aria-label={player.playing ? 'Pause' : 'Play'}>
+              {player.playing ? <PauseIcon size={56} /> : <PlayIcon size={56} />}
+            </button>
+            <button className="night-small" onClick={() => setSleepOpen(true)} aria-label="Sleep timer">
+              <MoonIcon size={30} />
+            </button>
+          </div>
+          <div className="night-status">
+            {player.sleep && sleepRemaining !== null ? `Sleep in ${formatTime(sleepRemaining)}` : player.playing ? '' : 'Paused'}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

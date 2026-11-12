@@ -3,6 +3,8 @@ import type { FormEvent } from 'react';
 import { api } from '../api';
 import type { AdminUser } from '../api';
 import { useAuth } from '../auth';
+import { usePrefs } from '../prefs';
+import type { Prefs } from '../prefs';
 
 export function Settings() {
   const { user, logout } = useAuth();
@@ -13,11 +15,53 @@ export function Settings() {
         Signed in as <strong>{user?.username}</strong>
         {user?.isAdmin && ' (admin)'}
       </p>
+      <Bedtime />
       <ChangePassword />
       {user?.isAdmin && <AdminPanel />}
       <button className="btn btn-ghost btn-block" onClick={() => void logout()}>
         Sign out
       </button>
+    </div>
+  );
+}
+
+const AUTO_SLEEP_OPTIONS: { value: Prefs['autoSleep']; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 15, label: '15 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '60 min' },
+  { value: 'chapter', label: 'End of chapter' },
+];
+
+function Bedtime() {
+  const [prefs, setPrefs] = usePrefs();
+  return (
+    <div className="card">
+      <h2>Bedtime</h2>
+      <p className="muted small">Start a sleep timer automatically when you press play. Saved on this device only.</p>
+      <div className="chips tight">
+        {AUTO_SLEEP_OPTIONS.map((o) => (
+          <button
+            key={String(o.value)}
+            className={`chip ${prefs.autoSleep === o.value ? 'chip-active' : ''}`}
+            onClick={() => setPrefs({ autoSleep: o.value })}
+            aria-pressed={prefs.autoSleep === o.value}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {prefs.autoSleep !== 'off' && (
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={prefs.autoSleepNightOnly}
+            onChange={(e) => setPrefs({ autoSleepNightOnly: e.target.checked })}
+          />{' '}
+          Only at night (8 pm – 6 am)
+        </label>
+      )}
     </div>
   );
 }

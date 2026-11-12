@@ -2,9 +2,18 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
-import { enqueueImport, isValidIdentifier, retryImport, search } from '../lib/archive.js';
+import { CATEGORIES, enqueueImport, isValidIdentifier, retryImport, search } from '../lib/archive.js';
 
-const searchQuery = z.object({ q: z.string().trim().min(2).max(100) });
+const searchQuery = z
+  .object({
+    q: z.string().trim().max(100).optional(),
+    category: z.string().optional(),
+    english: z.enum(['0', '1']).default('1'),
+    page: z.coerce.number().int().min(0).max(50).default(0),
+  })
+  .refine((v) => (v.q && v.q.length >= 2) || (v.category && v.category in CATEGORIES), {
+    message: 'Type at least 2 characters',
+  });
 const importBody = z.object({
   id: z.string().refine(isValidIdentifier),
   title: z.string().max(300).default('Audiobook'),
@@ -20,14 +29,19 @@ export async function discoverRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const query = searchQuery.safeParse(request.query);
       if (!query.success) return reply.code(400).send({ error: 'Type at least 2 characters' });
+      const { q, category, english, page } = query.data;
       try {
-        return { results: await search(query.data.q) };
+        return await search({ text: q || undefined, category: q ? undefined : category, english: english === '1', page });
       } catch (err) {
         request.log.warn(err, 'Internet Archive search failed');
         return reply.code(502).send({ error: 'The Internet Archive is not responding, try again in a bit' });
       }
     },
   );
+
+  app.get('/api/discover/categories', async () => ({
+    categories: Object.entries(CATEGORIES).map(([id, c]) => ({ id, label: c.label })),
+  }));
 
   app.post('/api/discover/import', async (request, reply) => {
     const body = importBody.safeParse(request.body);

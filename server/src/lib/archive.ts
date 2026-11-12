@@ -31,7 +31,8 @@ export interface SearchResult {
   durationSecs: number;
   coverUrl: string;
   sourceUrl: string;
-  inLibrary: boolean;
+  /** Set when this recording is already in the library. */
+  bookId: number | null;
   importStatus: string | null;
 }
 
@@ -67,26 +68,51 @@ const paragraphs = (raw: string) =>
     .map((p) => stripHtml(p))
     .filter(Boolean);
 
-const BOILERPLATE = /^(LibriVox recording of|Read (in English )?by )/i;
-
-/**
- * Drops the leading LibriVox boilerplate. Seen in the wild as either
- * "LibriVox recording of X, by Y. Read by Z." or that plus a separate "Read by Z" paragraph.
- */
-function cleanDescription(raw: string): string {
-  const paras = paragraphs(raw);
-  while (paras.length > 1 && BOILERPLATE.test(paras[0])) paras.shift();
-  return paras.join('\n\n');
+/** Index just past the sentence that starts at `from`, not counting initials like "F." as sentence ends. */
+function sentenceEnd(text: string, from: number): number {
+  for (let i = from; i < text.length; i++) {
+    if (text[i] !== '.') continue;
+    const wordBefore = text.slice(from, i).split(/\s+/).pop() ?? '';
+    const atEnd = i + 1 >= text.length || /\s/.test(text[i + 1]);
+    if (atEnd && wordBefore.length > 1) return i + 1;
+  }
+  return text.length;
 }
 
-/** Reader name from the boilerplate paragraphs, if present. */
-function readerFrom(raw: string): string | undefined {
-  const paras = paragraphs(raw).slice(0, 2).filter((p) => BOILERPLATE.test(p));
-  for (const para of paras) {
-    const name = para.match(/Read (?:in English )?by (.+?)\.?$/i)?.[1]?.trim();
-    if (name && name.length <= 120) return name;
+/**
+ * Splits LibriVox boilerplate off a description. It shows up as
+ * "LibriVox recording of TITLE by AUTHOR. Read [in English] by READER. Actual description..."
+ * in one paragraph or spread over several.
+ */
+function splitBoilerplate(raw: string, author: string): { description: string; reader?: string } {
+  const text = paragraphs(raw).join('\n\n');
+  if (!/^librivox recording of/i.test(text)) return { description: text };
+  let rest: string;
+  const byAuthor = author ? text.toLowerCase().indexOf(` by ${author.toLowerCase()}`) : -1;
+  if (byAuthor >= 0 && byAuthor < 400) {
+    rest = text.slice(byAuthor + 4 + author.length).replace(/^[.,]?\s*/, '');
+  } else {
+    rest = text.slice(sentenceEnd(text, 0)).trimStart();
   }
-  return undefined;
+  let reader: string | undefined;
+  const readBy = rest.match(/^Read (?:in English )?by\s+/i);
+  if (readBy) {
+    const end = sentenceEnd(rest, readBy[0].length);
+    const name = rest.slice(readBy[0].length, end).replace(/\.$/, '').trim();
+    if (name.length > 0 && name.length <= 120) reader = name;
+    rest = rest.slice(end).trimStart();
+  }
+  return { description: rest || text, reader };
+}
+
+const cleanDescription = (raw: string, author: string) => splitBoilerplate(raw, author).description;
+const readerFrom = (raw: string, author: string) => splitBoilerplate(raw, author).reader;
+
+/** IA titles are sometimes "Title, by Author". */
+function cleanTitle(title: string, author: string): string {
+  if (!author) return title;
+  const escaped = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return title.replace(new RegExp(`,?\\s+by\\s+${escaped}\\s*$`, 'i'), '').trim() || title;
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -95,29 +121,82 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function search(query: string): Promise<SearchResult[]> {
-  // Keep only words; Lucene special characters would otherwise break or widen the query.
-  const words = query
-    .replace(/[+\-&|!(){}[\]^"~*?:\\/]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 8);
-  if (words.length === 0) return [];
-  const terms = words.join(' AND ');
-  const q = `collection:${COLLECTION} AND mediatype:audio AND (title:(${terms}) OR creator:(${terms}))`;
+export const CATEGORIES: Record<string, { label: string; query?: string; maxSecs?: number }> = {
+  popular: { label: 'Popular' },
+  bedtime: { label: 'Bedtime & children', query: 'subject:(children OR "fairy tales" OR fairy OR fables OR nursery)' },
+  short: { label: 'Under 90 min', maxSecs: 90 * 60 },
+  mystery: { label: 'Mystery', query: 'subject:(mystery OR detective OR crime)' },
+  adventure: { label: 'Adventure', query: 'subject:(adventure)' },
+  fantasy: { label: 'Fantasy', query: 'subject:(fantasy)' },
+  scifi: { label: 'Sci-fi', query: 'subject:("science fiction")' },
+  humor: { label: 'Humor', query: 'subject:(humor OR humorous OR comedy)' },
+  horror: { label: 'Spooky', query: 'subject:(horror OR ghost OR supernatural)' },
+};
 
+interface QueryOptions {
+  text?: string;
+  category?: string;
+  english?: boolean;
+  page?: number;
+}
+
+const PAGE_SIZE = 30;
+const cache = new Map<string, { at: number; docs: Record<string, unknown>[] }>();
+const CACHE_MS = 60 * 60 * 1000;
+
+async function fetchDocs(q: string, rows: number, page: number): Promise<Record<string, unknown>[]> {
   const url = new URL('https://archive.org/advancedsearch.php');
   url.searchParams.set('q', q);
   for (const f of ['identifier', 'title', 'creator', 'description', 'runtime', 'language']) url.searchParams.append('fl[]', f);
   url.searchParams.append('sort[]', 'downloads desc');
-  url.searchParams.set('rows', '40');
+  url.searchParams.set('rows', String(rows));
+  url.searchParams.set('page', String(page + 1));
   url.searchParams.set('output', 'json');
-
-  const json = await getJson<{ response?: { docs?: Record<string, unknown>[] } }>(url.toString());
+  const key = url.toString();
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.docs;
+  const json = await getJson<{ response?: { docs?: Record<string, unknown>[] } }>(key);
   const docs = json.response?.docs ?? [];
+  cache.set(key, { at: Date.now(), docs });
+  if (cache.size > 200) cache.delete(cache.keys().next().value!);
+  return docs;
+}
 
-  const inLibrary = new Set(
-    (db.prepare('SELECT source_id FROM books WHERE source = ?').all(SOURCE) as { source_id: string }[]).map((r) => r.source_id),
+/** "The Time Machine (version 3)" and "The Time Machine" are the same book. */
+const titleKey = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/\((dramatic reading|version \d+|abridged|unabridged)[^)]*\)/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+export async function search(opts: QueryOptions): Promise<{ results: SearchResult[]; hasMore: boolean }> {
+  const parts = [`collection:${COLLECTION}`, 'mediatype:audio'];
+  if (opts.english !== false) parts.push('language:(eng OR English)');
+
+  if (opts.text) {
+    // Keep only words; Lucene special characters would otherwise break or widen the query.
+    const words = opts.text
+      .replace(/[+\-&|!(){}[\]^"~*?:\/]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 8);
+    if (words.length === 0) return { results: [], hasMore: false };
+    const terms = words.join(' AND ');
+    parts.push(`(title:(${terms}) OR creator:(${terms}))`);
+  }
+  const category = opts.category ? CATEGORIES[opts.category] : undefined;
+  if (category?.query) parts.push(`(${category.query})`);
+
+  // Runtime can't be filtered by the search API, so for the "short" shelf fetch a big page and filter here.
+  const rows = category?.maxSecs ? 300 : PAGE_SIZE;
+  const page = Math.max(0, opts.page ?? 0);
+  const docs = await fetchDocs(parts.join(' AND '), rows, page);
+
+  const libraryIds = new Map(
+    (db.prepare('SELECT id, source_id FROM books WHERE source = ?').all(SOURCE) as { id: number; source_id: string }[]).map(
+      (r) => [r.source_id, r.id],
+    ),
   );
   const imports = new Map(
     (
@@ -128,26 +207,36 @@ export async function search(query: string): Promise<SearchResult[]> {
     ).map((r) => [r.source_id, r.status]),
   );
 
-  return docs
-    .map((d) => {
-      const id = first(d.identifier);
-      const runtime = first(d.runtime);
-      const lang = first(d.language);
-      return {
-        id,
-        title: stripHtml(first(d.title)) || id,
-        author: stripHtml(joined(d.creator)) || 'Unknown',
-        description: cleanDescription(first(d.description)).slice(0, 800),
-        language: LANGUAGES[lang] ?? lang,
-        duration: runtime,
-        durationSecs: parseRuntime(runtime),
-        coverUrl: `https://archive.org/services/img/${encodeURIComponent(id)}`,
-        sourceUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
-        inLibrary: inLibrary.has(id),
-        importStatus: imports.get(id) ?? null,
-      };
-    })
-    .filter((r) => isValidIdentifier(r.id));
+  const seen = new Set<string>();
+  const results: SearchResult[] = [];
+  for (const d of docs) {
+    const id = first(d.identifier);
+    if (!isValidIdentifier(id)) continue;
+    const author = stripHtml(joined(d.creator)) || 'Unknown';
+    const title = cleanTitle(stripHtml(first(d.title)) || id, author);
+    const runtime = first(d.runtime);
+    const durationSecs = parseRuntime(runtime);
+    if (category?.maxSecs && (durationSecs <= 0 || durationSecs > category.maxSecs)) continue;
+    // Results are sorted by popularity, so the first version of a title is the one people liked most.
+    const key = `${titleKey(title)}|${author.toLowerCase()}`;
+    if (seen.has(key) && !libraryIds.has(id)) continue;
+    seen.add(key);
+    const lang = first(d.language);
+    results.push({
+      id,
+      title,
+      author,
+      description: cleanDescription(first(d.description), author).slice(0, 800),
+      language: LANGUAGES[lang] ?? lang,
+      duration: runtime,
+      durationSecs,
+      coverUrl: `https://archive.org/services/img/${encodeURIComponent(id)}`,
+      sourceUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
+      bookId: libraryIds.get(id) ?? null,
+      importStatus: imports.get(id) ?? null,
+    });
+  }
+  return { results, hasMore: docs.length === rows };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,8 +329,8 @@ async function runImport(importId: number, identifier: string): Promise<void> {
   if (audio.length === 0) throw new Error('No MP3 files found for this book');
 
   const m = meta.metadata ?? {};
-  const title = stripHtml(first(m.title)) || identifier;
   const author = stripHtml(joined(m.creator)) || 'Unknown';
+  const title = cleanTitle(stripHtml(first(m.title)) || identifier, author);
   const work = path.join(config.libraryDir, '.incoming', `archive-${identifier}`);
   await fs.mkdir(work, { recursive: true });
 
@@ -266,12 +355,12 @@ async function runImport(importId: number, identifier: string): Promise<void> {
   await download(coverSrc, path.join(work, `cover${coverExt}`), 2).catch(() => undefined);
 
   const description = first(m.description);
-  const reader = readerFrom(description);
+  const reader = readerFrom(description, author);
   const metadata: BookMetadataFile = {
     title,
     author,
     narrator: reader,
-    description: cleanDescription(description),
+    description: cleanDescription(description, author),
     source: SOURCE,
     sourceId: identifier,
     trackTitles: audio.map((f, i) => stripHtml(f.title ?? '') || `Part ${i + 1}`),

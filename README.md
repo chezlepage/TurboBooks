@@ -4,10 +4,13 @@ Self-hosted audiobook player built for falling asleep. Two (or more) accounts, e
 
 ## Features
 
-- **Discover**: search the LibriVox collection on the Internet Archive (popular first) and add books with one tap. The server downloads them in the background.
+- **Discover**: browse shelves (Bedtime & children, Under 90 min, Mystery, Sci-fi…) or search the LibriVox collection on the Internet Archive, most popular version first, and add books with one tap. The server downloads them in the background.
 - **Bring your own files**: drop MP3/M4B/M4A/OGG/FLAC into the library folder. Each folder is one book; M4B chapters are detected.
 - **Sleep timer**: 5–90 min or end of chapter. Volume fades out over the last 45 s (desktop/Android; iOS ignores web volume, so it stops without fading).
 - **Auto-rewind**: 60 s after the sleep timer stops it, 5–30 s after a long pause.
+- **"Dozed off?"**: after the timer stops playback, the player offers to jump back to where you set the timer.
+- **Auto sleep timer**: optionally start a timer every time you press play (Settings → Bedtime), at night only if you like.
+- **Night screen**: pitch-black overlay with one dim play button, no glare in a dark room.
 - **Per-user progress** synced to the server every 10 s and on pause/close. Resume on any device.
 - Lock-screen and headphone controls (Media Session), 0.8–2× speed, chapter skip.
 - Installable PWA with a dark, dim UI meant for a dark bedroom.

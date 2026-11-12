@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import { api, beaconProgress, coverUrl, streamUrl } from '../api';
 import type { BookDetail, Chapter } from '../api';
+import { isNight, loadPrefs } from '../prefs';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -18,6 +19,26 @@ export const SPEEDS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 const LS_LAST_BOOK = 'tb.lastBook';
 const LS_RATE = 'tb.rate';
+const LS_SLEEP_MARK = 'tb.sleepMark';
+/** How long a "you fell asleep here" mark stays offered. */
+const SLEEP_MARK_TTL = 18 * 60 * 60 * 1000;
+
+export interface SleepMark {
+  bookId: number;
+  /** Book position when the sleep timer was set (you were still awake). */
+  position: number;
+  /** When playback was stopped by the timer. */
+  at: number;
+}
+
+function readSleepMark(bookId: number): SleepMark | null {
+  try {
+    const m = JSON.parse(localStorage.getItem(LS_SLEEP_MARK) ?? 'null') as SleepMark | null;
+    return m && m.bookId === bookId && Date.now() - m.at < SLEEP_MARK_TTL ? m : null;
+  } catch {
+    return null;
+  }
+}
 
 const lsGet = (key: string) => {
   try {
@@ -78,6 +99,10 @@ interface PlayerApi {
   setRate: (rate: number) => void;
   setSleep: (setting: SleepSetting | null) => void;
   addSleepMinutes: (minutes: number) => void;
+  /** Where the last sleep timer was set, if it stopped playback recently. */
+  sleepMark: SleepMark | null;
+  jumpToSleepMark: () => void;
+  dismissSleepMark: () => void;
   close: () => void;
 }
 
@@ -107,6 +132,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [rate, setRateState] = useState(() => Number(lsGet(LS_RATE)) || 1);
   const [sleepKind, setSleepKind] = useState<'minutes' | 'chapter' | null>(null);
   const [clock, setClock] = useState<Clock>({ position: 0, sleepRemaining: null });
+  const [sleepMark, setSleepMark] = useState<SleepMark | null>(null);
 
   // Mutable mirrors so audio event handlers never see stale state.
   const bookRef = useRef<BookDetail | null>(null);
@@ -117,6 +143,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const pausedAtRef = useRef<number | null>(null);
   const stoppedBySleepRef = useRef(false);
   const lastSaveRef = useRef(0);
+  /** Book position when the current sleep timer was started. */
+  const sleepStartRef = useRef<number | null>(null);
 
   // ---- position helpers ---------------------------------------------------
   const currentPosition = useCallback(() => {
@@ -167,12 +195,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // ---- sleep timer ----------------------------------------------------------
   const clearSleep = useCallback(() => {
     sleepRef.current = null;
+    sleepStartRef.current = null;
     setSleepKind(null);
     if (audioRef.current) audioRef.current.volume = 1;
   }, []);
 
   const stopForSleep = useCallback(() => {
     const audio = audioRef.current;
+    const b = bookRef.current;
+    if (b && sleepStartRef.current !== null) {
+      const mark: SleepMark = { bookId: b.id, position: sleepStartRef.current, at: Date.now() };
+      lsSet(LS_SLEEP_MARK, JSON.stringify(mark));
+      setSleepMark(mark);
+    }
     clearSleep();
     stoppedBySleepRef.current = true;
     audio?.pause();
@@ -185,6 +220,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (s.kind === 'minutes') return s.remainingMs / 1000;
     return Math.max(0, (s.stopAt - currentPosition()) / rateRef.current);
   }, [currentPosition]);
+
+  const setSleep = useCallback(
+    (setting: SleepSetting | null) => {
+      if (!setting) return clearSleep();
+      if (setting.kind === 'minutes') {
+        sleepRef.current = { kind: 'minutes', remainingMs: setting.minutes * 60_000, stopAt: 0 };
+      } else {
+        const b = bookRef.current;
+        const ch = chapterAt(b, currentPosition());
+        if (!b || !ch) return;
+        sleepRef.current = { kind: 'chapter', remainingMs: 0, stopAt: ch.end };
+      }
+      setSleepKind(setting.kind);
+      sleepStartRef.current = currentPosition();
+      if (audioRef.current) audioRef.current.volume = 1;
+    },
+    [clearSleep, currentPosition],
+  );
+
+  const addSleepMinutes = useCallback((minutes: number) => {
+    const s = sleepRef.current;
+    if (s?.kind === 'minutes') s.remainingMs += minutes * 60_000;
+    else {
+      sleepRef.current = { kind: 'minutes', remainingMs: minutes * 60_000, stopAt: 0 };
+      sleepStartRef.current = currentPosition();
+      setSleepKind('minutes');
+    }
+    if (audioRef.current) audioRef.current.volume = 1;
+  }, [currentPosition]);
+
+  /** Starts the timer from Settings → Bedtime, unless one is already running. */
+  const maybeAutoSleep = useCallback(() => {
+    if (sleepRef.current) return;
+    const prefs = loadPrefs();
+    if (prefs.autoSleep === 'off' || (prefs.autoSleepNightOnly && !isNight())) return;
+    setSleep(prefs.autoSleep === 'chapter' ? { kind: 'chapter' } : { kind: 'minutes', minutes: prefs.autoSleep });
+  }, [setSleep]);
+
+
 
   // One loop drives the clock display, the sleep countdown + fade, and periodic saves.
   useEffect(() => {
@@ -328,10 +402,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     pausedAtRef.current = null;
     if (rewind > 0) seek(currentPosition() - rewind);
     audio.volume = 1;
+    maybeAutoSleep();
     audio.play().catch((e: Error) => {
       if (e.name !== 'AbortError') setError('Playback was blocked. Tap play again.');
     });
-  }, [currentPosition, seek]);
+  }, [currentPosition, maybeAutoSleep, seek]);
 
   const pause = useCallback(() => audioRef.current?.pause(), []);
 
@@ -371,33 +446,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const setSleep = useCallback(
-    (setting: SleepSetting | null) => {
-      if (!setting) return clearSleep();
-      if (setting.kind === 'minutes') {
-        sleepRef.current = { kind: 'minutes', remainingMs: setting.minutes * 60_000, stopAt: 0 };
-      } else {
-        const b = bookRef.current;
-        const ch = chapterAt(b, currentPosition());
-        if (!b || !ch) return;
-        sleepRef.current = { kind: 'chapter', remainingMs: 0, stopAt: ch.end };
-      }
-      setSleepKind(setting.kind);
-      if (audioRef.current) audioRef.current.volume = 1;
-    },
-    [clearSleep, currentPosition],
-  );
-
-  const addSleepMinutes = useCallback((minutes: number) => {
-    const s = sleepRef.current;
-    if (s?.kind === 'minutes') s.remainingMs += minutes * 60_000;
-    else {
-      sleepRef.current = { kind: 'minutes', remainingMs: minutes * 60_000, stopAt: 0 };
-      setSleepKind('minutes');
-    }
-    if (audioRef.current) audioRef.current.volume = 1;
-  }, []);
-
   const open = useCallback(
     async (target: number | BookDetail, opts: { autoplay?: boolean; position?: number } = {}) => {
       const audio = audioRef.current;
@@ -426,10 +474,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         pausedAtRef.current = null;
         bookRef.current = detail;
         setBook(detail);
+        setSleepMark(readSleepMark(detail.id));
         lsSet(LS_LAST_BOOK, String(bookId));
         const idx = trackIndexFor(detail, start);
         loadTrack(idx, start - detail.tracks[idx].start, !!opts.autoplay);
         setClock({ position: start, sleepRemaining: null });
+        if (opts.autoplay) maybeAutoSleep();
         if (!opts.autoplay) setLoading(false);
       } catch (e) {
         setLoading(false);
@@ -437,8 +487,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if ((e as { status?: number }).status === 404) lsSet(LS_LAST_BOOK, null);
       }
     },
-    [clearSleep, loadTrack, play, save, seek],
+    [clearSleep, loadTrack, maybeAutoSleep, play, save, seek],
   );
+
+  const dismissSleepMark = useCallback(() => {
+    lsSet(LS_SLEEP_MARK, null);
+    setSleepMark(null);
+  }, []);
+
+  const jumpToSleepMark = useCallback(() => {
+    const mark = sleepMark;
+    if (!mark || bookRef.current?.id !== mark.bookId) return;
+    // An explicit jump: no extra auto-rewind on the next play.
+    stoppedBySleepRef.current = false;
+    pausedAtRef.current = null;
+    seek(mark.position);
+    dismissSleepMark();
+  }, [dismissSleepMark, seek, sleepMark]);
 
   const close = useCallback(() => {
     const audio = audioRef.current;
@@ -540,9 +605,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setRate,
       setSleep,
       addSleepMinutes,
+      sleepMark,
+      jumpToSleepMark,
+      dismissSleepMark,
       close,
     }),
-    [book, playing, loading, error, rate, sleepKind, open, play, pause, toggle, seek, skip, nextChapter, prevChapter, setRate, setSleep, addSleepMinutes, close],
+    [book, playing, loading, error, rate, sleepKind, open, play, pause, toggle, seek, skip, nextChapter, prevChapter, setRate, setSleep, addSleepMinutes, sleepMark, jumpToSleepMark, dismissSleepMark, close],
   );
 
   return (
