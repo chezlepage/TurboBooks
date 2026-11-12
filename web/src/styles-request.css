@@ -313,14 +313,9 @@
   object-fit: cover;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
-/* The base placeholder pads in %, which is relative to the parent's width: too much on small covers. */
 .rq-page .rq-card-cover.cover-placeholder,
 .rq-page .rq-sheet-cover.cover-placeholder {
-  padding: 8px 6px 8px 9px;
   gap: 4px;
-}
-.rq-page .rq-result-img.cover-placeholder {
-  padding: 12px 9px 12px 13px;
 }
 .rq-page .rq-card-cover.cover-placeholder .ph-title {
   font-size: 0.6rem;
