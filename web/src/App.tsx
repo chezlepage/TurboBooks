@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth';
 import { BooksIcon, PlusIcon, SearchIcon, UserIcon } from './components/Icons';
 import { MiniPlayer } from './components/MiniPlayer';
+import { FinishedSheet } from './components/FinishedSheet';
 import { Toaster } from './components/Toast';
 import { BookPage } from './pages/BookPage';
 import { Discover } from './pages/Discover';
@@ -12,6 +13,7 @@ import { Library } from './pages/Library';
 import { Login } from './pages/Login';
 import { PlayerPage } from './pages/PlayerPage';
 import { Profile } from './pages/Profile';
+import { YearInBooks } from './pages/YearInBooks';
 import { Settings } from './pages/Settings';
 import { PlayerProvider } from './player/PlayerContext';
 
@@ -55,6 +57,8 @@ function Shell() {
           <Route path="/kindle" element={<KindleSetup />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/profile/:id" element={<Profile />} />
+          <Route path="/year" element={<YearInBooks />} />
+          <Route path="/profile/:id/year" element={<YearInBooks />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -90,6 +94,7 @@ function Shell() {
         </>
       )}
       <Toaster />
+      <FinishedSheet />
     </div>
   );
 }

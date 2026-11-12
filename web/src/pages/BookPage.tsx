@@ -7,6 +7,7 @@ import { Cover } from '../components/Cover';
 import { BooksIcon, ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/Icons';
 import { BookSkeleton } from '../components/Skeleton';
 import { Stars } from '../components/Stars';
+import { celebrateFinish } from '../components/FinishedSheet';
 import { toast } from '../components/Toast';
 import { chapterAt, useClock, usePlayer } from '../player/PlayerContext';
 import { setBookHidden, usePrefs } from '../prefs';
@@ -94,7 +95,7 @@ export function BookPage() {
     setMenuOpen(false);
     await api.saveProgress(book.id, isEbook ? 1 : book.duration, true);
     if (isCurrent) player.close();
-    toast('Marked as finished');
+    celebrateFinish(book);
     void load();
   };
 

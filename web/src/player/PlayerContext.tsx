@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import { api, beaconProgress, coverUrl, streamUrl } from '../api';
 import type { BookDetail, Chapter } from '../api';
+import { celebrateFinish } from '../components/FinishedSheet';
 import { isNight, loadPrefs, syncPrefs } from '../prefs';
 
 // ---------------------------------------------------------------------------
@@ -336,6 +337,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setPlaying(false);
         clearSleep();
         save({ finished: true });
+        celebrateFinish(b);
       }
     };
 
@@ -575,6 +577,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // ---- lock screen / headphone controls (Media Session API) ----------------
   const chapterTitle = chapterAt(book, clock.position)?.title;
+  // Lock screen shows the sleep countdown, refreshed once a minute (cheap, and enough at bedtime).
+  const sleepMinutes = clock.sleepRemaining !== null ? Math.max(1, Math.ceil(clock.sleepRemaining / 60)) : null;
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
@@ -585,11 +589,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const cover = coverUrl(book);
     ms.metadata = new MediaMetadata({
       title: chapterTitle && book.chapters.length > 1 ? chapterTitle : book.title,
-      artist: book.author ?? '',
+      artist: sleepMinutes ? `Sleep in ${sleepMinutes} min · ${book.author ?? book.title}` : book.author ?? '',
       album: book.title,
       artwork: cover ? [{ src: new URL(cover, location.href).href, sizes: '512x512' }] : [],
     });
-  }, [book, chapterTitle]);
+  }, [book, chapterTitle, sleepMinutes]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;

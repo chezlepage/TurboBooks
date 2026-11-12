@@ -101,7 +101,11 @@ function splitBoilerplate(raw: string, author: string): { description: string; r
   return { description: rest || text, reader };
 }
 
-const cleanDescription = (raw: string, author: string) => splitBoilerplate(raw, author).description;
+const cleanDescription = (raw: string, author: string) =>
+  splitBoilerplate(raw, author)
+    .description // LibriVox pages often end with a download link that means nothing here.
+    .replace(/\s*Download M4B\s*\([^)]*\)\s*$/i, '')
+    .trim();
 const readerFrom = (raw: string, author: string) => splitBoilerplate(raw, author).reader;
 
 /** IA titles are sometimes "Title, by Author". */

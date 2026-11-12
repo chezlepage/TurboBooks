@@ -180,6 +180,16 @@ export function Profile() {
 
               <GoalCard goal={person.goal} doneThisYear={person.stats?.finishedThisYear ?? 0} editable={person.isYou} />
 
+              <Link className="year-link" to={person.isYou ? '/year' : `/profile/${person.id}/year`}>
+                <span>
+                  <span className="kicker">Year in books</span>
+                  <strong>
+                    {person.isYou ? 'Your' : `${person.username}'s`} {new Date().getFullYear()} so far
+                  </strong>
+                </span>
+                <span aria-hidden>›</span>
+              </Link>
+
               {person.stats && (
                 <ul className="stats-row">
                   <li>

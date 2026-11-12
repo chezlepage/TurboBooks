@@ -44,7 +44,8 @@ export function Discover() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imports, setImports] = useState<ImportJob[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  /** Result shown in the preview sheet. */
+  const [preview, setPreview] = useState<SearchResult | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -305,23 +306,20 @@ export function Discover() {
           {results.map((r) => {
             const bookId = bookIdFor(r);
             const busy = isBusy(r);
-            const open = expanded === r.id;
             return (
               <li key={r.id} className="result">
-                <Cover src={r.coverUrl} title={r.title} className="result-cover" />
-                <div className="result-body">
-                  <div className="result-title">{r.title}</div>
-                  <div className="muted small">
-                    {r.author}
-                    {r.durationSecs > 0 && ` · ${formatDuration(r.durationSecs)}`}
-                    {r.language && r.language !== 'English' && ` · ${r.language}`}
+                <button className="result-open" onClick={() => setPreview(r)} aria-label={`Preview ${r.title}`}>
+                  <Cover src={r.coverUrl} title={r.title} className="result-cover" />
+                  <div className="result-body">
+                    <div className="result-title">{r.title}</div>
+                    <div className="muted small">
+                      {r.author}
+                      {r.durationSecs > 0 && ` · ${formatDuration(r.durationSecs)}`}
+                      {r.language && r.language !== 'English' && ` · ${r.language}`}
+                    </div>
+                    {r.description && <p className="result-desc clamped">{r.description}</p>}
                   </div>
-                  {r.description && (
-                    <p className={`result-desc ${open ? '' : 'clamped'}`} onClick={() => setExpanded(open ? null : r.id)}>
-                      {r.description}
-                    </p>
-                  )}
-                </div>
+                </button>
                 <div className="result-action">
                   {bookId ? (
                     <button className="icon-btn added" onClick={() => navigate(`/book/${bookId}`)} aria-label={`Open ${r.title}`}>
@@ -341,6 +339,17 @@ export function Discover() {
         </ul>
       )}
 
+      {preview && (
+        <PreviewSheet
+          r={preview}
+          bookId={bookIdFor(preview)}
+          busy={isBusy(preview)}
+          onAdd={() => void add(preview)}
+          onOpen={(id) => navigate(`/book/${id}`)}
+          onClose={() => setPreview(null)}
+        />
+      )}
+
       {loading && (!results || results.length === 0) && <ListSkeleton />}
       {loading && results && results.length > 0 && <p className="muted center">Loading…</p>}
       {!loading && hasMore && results && results.length > 0 && (
@@ -350,6 +359,78 @@ export function Discover() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** A closer look at a search result before adding it. */
+function PreviewSheet({
+  r,
+  bookId,
+  busy,
+  onAdd,
+  onOpen,
+  onClose,
+}: {
+  r: SearchResult;
+  bookId: number | null;
+  busy: boolean;
+  onAdd: () => void;
+  onOpen: (id: number) => void;
+  onClose: () => void;
+}) {
+  const facts = [
+    r.kind === 'ebook' ? 'Ebook' : 'Audiobook',
+    r.durationSecs > 0 ? formatDuration(r.durationSecs) : null,
+    r.language || null,
+    r.kind === 'ebook' ? 'Project Gutenberg' : 'LibriVox',
+  ].filter(Boolean) as string[];
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet preview-sheet" role="dialog" aria-label={r.title} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        <div className="preview-head">
+          <Cover src={r.coverUrl} title={r.title} author={r.author} className="preview-cover" />
+          <div className="preview-meta">
+            <h2 className="preview-title">{r.title}</h2>
+            <p className="author">{r.author}</p>
+            <ul className="stat-chips">
+              {facts.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        {r.description ? (
+          <p className="preview-desc">{r.description}</p>
+        ) : (
+          <p className="muted small">No description available.</p>
+        )}
+        <div className="preview-actions">
+          {bookId ? (
+            <button className="btn btn-primary btn-block" onClick={() => onOpen(bookId)}>
+              In your library: open
+            </button>
+          ) : busy ? (
+            <button className="btn btn-block" disabled>
+              Downloading…
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary btn-block"
+              onClick={() => {
+                onAdd();
+                onClose();
+              }}
+            >
+              Add to my library
+            </button>
+          )}
+          <a className="btn btn-ghost btn-block" href={r.sourceUrl} target="_blank" rel="noreferrer">
+            View on {r.kind === 'ebook' ? 'Project Gutenberg' : 'the Internet Archive'}
+          </a>
+        </div>
+      </div>
     </div>
   );
 }

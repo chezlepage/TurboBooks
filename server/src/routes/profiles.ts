@@ -184,6 +184,96 @@ export async function profileRoutes(app: FastifyInstance) {
     };
   });
 
+  /** "Year in books": everything finished in a calendar year, with a few highlights. */
+  app.get('/api/people/:id/year', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const q = z.object({ y: z.coerce.number().int().min(1900).max(3000).optional() }).parse(request.query);
+    const year = q.y ?? new Date().getFullYear();
+    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id) as { id: number; username: string } | undefined;
+    if (!user) return reply.code(404).send({ error: 'Person not found' });
+    const v = visibility(id, request.user!.id);
+    if (v.closed) return { year, username: user.username, private: true };
+
+    const from = new Date(year, 0, 1).getTime();
+    const to = new Date(year + 1, 0, 1).getTime();
+    const [notIn, notInParams] = excluding(v.exclude);
+
+    const library = db
+      .prepare(
+        `${ACTIVITY_SELECT} AND p.finished = 1 AND p.updated_at >= ? AND p.updated_at < ?${notIn} ORDER BY p.updated_at`,
+      )
+      .all(id, from, to, ...notInParams) as ActivityRow[];
+    const outside = db
+      .prepare(
+        `SELECT s.* FROM shelf_items s WHERE s.user_id = ? AND ${OUTSIDE_READ}
+           AND s.date_read >= ? AND s.date_read < ?${v.hiddenShelfSql} ORDER BY s.date_read`,
+      )
+      .all(id, from, to) as LogRow[];
+    // Listening time this year: finished audiobooks in full, plus books still in progress that were played this year.
+    const listened = db
+      .prepare(
+        `SELECT SUM(CASE WHEN p.finished = 1 THEN b.duration ELSE p.position END) AS secs
+         FROM progress p
+         JOIN books b ON b.id = p.book_id AND b.kind = 'audio'
+         JOIN library_entries le ON le.book_id = p.book_id AND le.user_id = p.user_id
+         WHERE p.user_id = ? AND p.updated_at >= ? AND p.updated_at < ?${notIn}`,
+      )
+      .get(id, from, to, ...notInParams) as { secs: number | null };
+
+    const books = [
+      ...library.map((r) => ({
+        source: 'library' as const,
+        id: r.id,
+        title: r.title,
+        author: r.author,
+        kind: r.kind,
+        hasCover: r.cover_path !== null,
+        isbn13: null as string | null,
+        rating: r.rating,
+        finishedAt: r.updated_at,
+        durationSecs: r.kind === 'audio' ? r.duration : null,
+      })),
+      ...outside.map((r) => ({
+        source: 'log' as const,
+        id: r.id,
+        title: r.title,
+        author: r.author,
+        kind: null,
+        hasCover: false,
+        isbn13: r.isbn13,
+        rating: r.rating,
+        finishedAt: r.date_read!,
+        durationSecs: null,
+      })),
+    ].sort((a, b) => a.finishedAt - b.finishedAt);
+
+    const byMonth = Array.from({ length: 12 }, () => 0);
+    for (const b of books) byMonth[new Date(b.finishedAt).getMonth()]++;
+    const rated = books.filter((b) => b.rating).sort((a, b) => b.rating! - a.rating! || b.finishedAt - a.finishedAt);
+    const longest = books.filter((b) => b.durationSecs).sort((a, b) => b.durationSecs! - a.durationSecs!)[0] ?? null;
+    const authors = new Map<string, number>();
+    for (const b of books) if (b.author) authors.set(b.author, (authors.get(b.author) ?? 0) + 1);
+    const topAuthor = [...authors.entries()].sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      year,
+      username: user.username,
+      isYou: v.isOwner,
+      private: false,
+      total: books.length,
+      audiobooks: books.filter((b) => b.kind === 'audio').length,
+      ebooks: books.filter((b) => b.kind === 'ebook').length,
+      elsewhere: books.filter((b) => b.source === 'log').length,
+      hoursListened: Math.round(((listened.secs ?? 0) / 3600) * 10) / 10,
+      byMonth,
+      favourites: rated.slice(0, 3),
+      longest,
+      topAuthor: topAuthor && topAuthor[1] > 1 ? { name: topAuthor[0], count: topAuthor[1] } : null,
+      goal: getReadingGoal(id, year),
+      books,
+    };
+  });
+
   app.get('/api/people/:id', async (request, reply) => {
     const { id } = idParam.parse(request.params);
     const user = db.prepare('SELECT id, username, is_admin, created_at FROM users WHERE id = ?').get(id) as

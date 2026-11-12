@@ -15,6 +15,7 @@ import {
   PlayIcon,
   PrevIcon,
 } from '../components/Icons';
+import { ChaptersSheet } from '../components/ChaptersSheet';
 import { SleepSheet } from '../components/SleepSheet';
 import { SPEEDS, chapterAt, useClock, usePlayer } from '../player/PlayerContext';
 
@@ -24,6 +25,7 @@ export function PlayerPage() {
   const navigate = useNavigate();
   const [sleepOpen, setSleepOpen] = useState(false);
   const [night, setNight] = useState(false);
+  const [chaptersOpen, setChaptersOpen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
   const { book } = player;
 
@@ -68,9 +70,15 @@ export function PlayerPage() {
           <button className="icon-btn" onClick={() => setNight(true)} aria-label="Night screen">
             <DimIcon size={22} />
           </button>
-          <Link className="icon-btn" to={`/book/${book.id}`} aria-label="Chapters and details">
-            <ListIcon size={24} />
-          </Link>
+          {hasChapters ? (
+            <button className="icon-btn" onClick={() => setChaptersOpen(true)} aria-label="Chapters">
+              <ListIcon size={24} />
+            </button>
+          ) : (
+            <Link className="icon-btn" to={`/book/${book.id}`} aria-label="Book details">
+              <ListIcon size={24} />
+            </Link>
+          )}
         </span>
       </header>
 
@@ -79,8 +87,20 @@ export function PlayerPage() {
       </div>
 
       <div className="player-meta">
-        <h1>{hasChapters && chapter ? chapter.title : book.title}</h1>
-        <p className="muted">{hasChapters ? book.title : book.author}</p>
+        <h1>
+          {hasChapters && chapter ? (
+            <button className="title-btn" onClick={() => setChaptersOpen(true)}>
+              {chapter.title}
+            </button>
+          ) : (
+            book.title
+          )}
+        </h1>
+        <p className="muted">
+          <Link to={`/book/${book.id}`} className="subtle-link">
+            {hasChapters ? book.title : book.author}
+          </Link>
+        </p>
       </div>
 
       <div className="scrubber">
@@ -160,6 +180,7 @@ export function PlayerPage() {
       </div>
 
       {sleepOpen && <SleepSheet onClose={() => setSleepOpen(false)} />}
+      {chaptersOpen && <ChaptersSheet onClose={() => setChaptersOpen(false)} />}
 
       {night && (
         <div className="night" role="dialog" aria-label="Night screen">

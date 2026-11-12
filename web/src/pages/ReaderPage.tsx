@@ -5,6 +5,7 @@ import ePub from 'epubjs';
 import type { Book as EpubBook, NavItem, Rendition } from 'epubjs';
 import { api, beaconProgress, ebookFileUrl } from '../api';
 import type { BookDetail } from '../api';
+import { celebrateFinish } from '../components/FinishedSheet';
 import { ChevronLeftIcon, ListIcon } from '../components/Icons';
 import { loadPrefs, usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
@@ -115,6 +116,7 @@ export function ReaderPage() {
         rendition.on('relocated', (loc: Relocated) => {
           cfiRef.current = loc.start.cfi;
           atEndRef.current = !!loc.atEnd;
+          if (loc.atEnd) celebrateFinish(book);
           const fromLocations = epub!.locations.length() > 0 ? epub!.locations.percentageFromCfi(loc.start.cfi) : null;
           fractionRef.current = fromLocations ?? loc.start.index / Math.max(1, (epub!.spine as unknown as { length: number }).length);
           setPercent(Math.round((loc.atEnd ? 1 : fractionRef.current) * 100));
