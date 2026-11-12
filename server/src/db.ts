@@ -143,6 +143,38 @@ const migrations: string[] = [
   INSERT OR IGNORE INTO import_waiters (import_id, user_id)
     SELECT id, created_by FROM imports WHERE created_by IS NOT NULL;
   `,
+  // v7: reading log beyond the library (Goodreads import, want-to-read) and ratings/notes.
+  `
+  CREATE TABLE shelf_items (
+    id            INTEGER PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    shelf         TEXT NOT NULL,              -- want | reading | read
+    title         TEXT NOT NULL,
+    author        TEXT,
+    isbn13        TEXT,
+    goodreads_id  TEXT,
+    rating        INTEGER,                    -- 1..5, null = unrated
+    review        TEXT,
+    date_read     INTEGER,
+    date_added    INTEGER NOT NULL,
+    hidden        INTEGER NOT NULL DEFAULT 0, -- hidden from others on the profile
+    book_id       INTEGER REFERENCES books(id) ON DELETE SET NULL, -- same book in this user's library
+    free_ebook_id TEXT,                       -- Project Gutenberg id, if a free copy exists
+    free_audio_id TEXT,                       -- LibriVox (archive.org) identifier
+    free_checked_at INTEGER,
+    UNIQUE (user_id, goodreads_id)
+  );
+  CREATE INDEX shelf_items_user ON shelf_items(user_id, shelf);
+
+  CREATE TABLE book_ratings (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id    INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    rating     INTEGER,
+    note       TEXT,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, book_id)
+  );
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

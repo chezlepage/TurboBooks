@@ -15,7 +15,17 @@ const prefsSchema = z.object({
   shareActivity: z.boolean().default(true),
   /** Books that never appear on my profile for others, even when sharing is on. */
   hiddenBooks: z.array(z.number().int().positive()).max(10000).default([]),
+  /** Yearly reading goals, e.g. { "2026": 20 }. */
+  readingGoals: z.record(z.string().regex(/^\d{4}$/), z.number().int().min(1).max(1000)).default({}),
 });
+
+/** A user's goal for a year, if they set one. */
+export function getReadingGoal(userId: number, year: number): number | null {
+  const row = db.prepare('SELECT data FROM user_prefs WHERE user_id = ?').get(userId) as { data: string } | undefined;
+  if (!row) return null;
+  const parsed = prefsSchema.safeParse(JSON.parse(row.data));
+  return parsed.success ? (parsed.data.readingGoals[String(year)] ?? null) : null;
+}
 
 /** What a user has chosen to keep to themselves. Defaults to sharing everything. */
 export function getPrivacy(userId: number): { share: boolean; hidden: Set<number> } {

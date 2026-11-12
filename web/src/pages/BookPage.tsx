@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
 import { BooksIcon, ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/Icons';
 import { BookSkeleton } from '../components/Skeleton';
+import { Stars } from '../components/Stars';
 import { toast } from '../components/Toast';
 import { chapterAt, useClock, usePlayer } from '../player/PlayerContext';
 import { setBookHidden, usePrefs } from '../prefs';
@@ -263,6 +264,14 @@ export function BookPage() {
             )}
           </div>
 
+          {book.inLibrary && (started || finished || book.myRating?.rating) && (
+            <RatingBlock
+              bookId={book.id}
+              initial={book.myRating}
+              onSaved={(r) => setBook({ ...book, myRating: r })}
+            />
+          )}
+
           {description && (
             <div className="description-block">
               <p className={`description ${showAllText || !longDescription ? '' : 'clamped'}`}>{description}</p>
@@ -295,6 +304,59 @@ export function BookPage() {
             })}
           </ol>
         </section>
+      )}
+    </div>
+  );
+}
+
+/** My stars and a short note. Stars save on tap; the note saves when you leave the box. */
+function RatingBlock({
+  bookId,
+  initial,
+  onSaved,
+}: {
+  bookId: number;
+  initial: { rating: number | null; note: string | null } | null;
+  onSaved: (r: { rating: number | null; note: string | null }) => void;
+}) {
+  const [rating, setRating] = useState<number | null>(initial?.rating ?? null);
+  const [note, setNote] = useState(initial?.note ?? '');
+  const [noteOpen, setNoteOpen] = useState(!!initial?.note);
+
+  const save = async (r: number | null, n: string) => {
+    await api.rateBook(bookId, r, n.trim() || null);
+    onSaved({ rating: r, note: n.trim() || null });
+  };
+
+  return (
+    <div className="rating-block">
+      <div className="rating-row">
+        <span className="muted small">Your rating</span>
+        <Stars
+          value={rating}
+          size={26}
+          onChange={(v) => {
+            setRating(v);
+            void save(v, note);
+            toast(v ? `Rated ${v} star${v === 1 ? '' : 's'}` : 'Rating cleared');
+          }}
+        />
+        {!noteOpen && (
+          <button className="link-btn" onClick={() => setNoteOpen(true)}>
+            Add a note
+          </button>
+        )}
+      </div>
+      {noteOpen && (
+        <textarea
+          className="rating-note"
+          placeholder="What did you think? Shows with your rating on your profile."
+          value={note}
+          maxLength={2000}
+          rows={3}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={() => void save(rating, note)}
+        />
       )}
     </div>
   );

@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, coverUrl } from '../api';
-import type { Activity, Person, PersonStats, PersonSummary } from '../api';
+import { api, coverUrl, isbnCoverUrl } from '../api';
+import type { Activity, Person, PersonStats, PersonSummary, ShelfItem } from '../api';
 import { Cover } from '../components/Cover';
+import { GoalCard } from '../components/GoalCard';
+import { GoodreadsImport } from '../components/GoodreadsImport';
+import { Stars } from '../components/Stars';
+import { WantToRead } from '../components/WantToRead';
 import { ChevronLeftIcon, GearIcon } from '../components/Icons';
 import { GridSkeleton } from '../components/Skeleton';
 import { toast } from '../components/Toast';
 import { setBookHidden, usePrefs } from '../prefs';
 
-// Privacy fields the server adds to profile responses.
-type Item = Activity & { hidden?: boolean };
+// Privacy, rating and reading-log fields the server adds to profile responses.
+type Item = Activity & { hidden?: boolean; rating?: number | null; note?: string | null };
 type Summary = Omit<PersonSummary, 'current' | 'stats'> & { private?: boolean; current: Item | null; stats: PersonStats | null };
 type Profile = Omit<Person, 'current' | 'finished' | 'stats'> & {
   private?: boolean;
@@ -17,6 +21,13 @@ type Profile = Omit<Person, 'current' | 'finished' | 'stats'> & {
   stats: PersonStats | null;
   current: Item[];
   finished: Item[];
+  goal: { year: number; target: number; done: number } | null;
+  /** Reading outside the library (imported "currently reading"). */
+  readingElsewhere: ShelfItem[];
+  /** Read before / outside the library (Goodreads import or added by hand). */
+  readLog: ShelfItem[];
+  /** Want to read: only present on your own profile. */
+  want: ShelfItem[];
 };
 
 /** "2 h ago", "yesterday", "3 days ago". */
@@ -68,6 +79,20 @@ export function Profile() {
         if (targetId) setPerson((await api.person(targetId)).person as unknown as Profile);
       })
       .catch((e: Error) => setError(e.message));
+
+  // After an import the server checks which want-to-read books are free; refresh until it's done.
+  useEffect(() => {
+    if (!person?.isYou) return;
+    let timer: number | undefined;
+    api
+      .shelf()
+      .then((r) => {
+        if (r.checkingFree) timer = window.setTimeout(() => void load(), 4000);
+      })
+      .catch(() => undefined);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [person]);
 
   // Clear only when switching person; privacy changes refresh in place.
   useEffect(() => {
@@ -153,6 +178,8 @@ export function Profile() {
                 </section>
               )}
 
+              <GoalCard goal={person.goal} doneThisYear={person.stats?.finishedThisYear ?? 0} editable={person.isYou} />
+
               {person.stats && (
                 <ul className="stats-row">
                   <li>
@@ -174,9 +201,25 @@ export function Profile() {
                 </ul>
               )}
 
+              {person.isYou && <GoodreadsImport onDone={() => void load()} />}
+
               <section>
                 <h2 className="section-title">{person.isYou ? 'On your nightstand' : 'Currently'}</h2>
-                {person.current.length === 0 ? (
+                {person.readingElsewhere.length > 0 && (
+                  <ul className="activity-list elsewhere-list">
+                    {person.readingElsewhere.map((s) => (
+                      <li key={`s${s.id}`} className="activity-row">
+                        <Cover src={isbnCoverUrl(s.isbn13)} title={s.title} author={s.author} className="activity-cover" />
+                        <div className="activity-text">
+                          <div className="activity-kicker">Reading elsewhere</div>
+                          <div className="activity-title">{s.title}</div>
+                          {s.author && <div className="muted small">{s.author}</div>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {person.current.length === 0 && person.readingElsewhere.length > 0 ? null : person.current.length === 0 ? (
                   <p className="muted">Nothing in progress right now.</p>
                 ) : (
                   <ul className="activity-list">
@@ -202,12 +245,19 @@ export function Profile() {
                           )}
                         </div>
                         <div className="book-card-title">{a.title}</div>
+                        <Stars value={a.rating ?? null} size={13} />
                         <div className="book-card-sub">{timeAgo(a.updatedAt)}</div>
                       </Link>
                     ))}
                   </div>
                 </section>
               )}
+
+              {person.readLog.length > 0 && (
+                <ReadLog items={person.readLog} mine={person.isYou} onChange={() => void load()} />
+              )}
+
+              {person.isYou && <WantToRead items={person.want} onChange={() => void load()} />}
             </>
           )}
         </>
@@ -284,5 +334,46 @@ function ActivityRow({ a, mine }: { a: Item; mine: boolean }) {
         </button>
       )}
     </li>
+  );
+}
+
+/** Books read outside the library: imported history and books logged by hand. */
+function ReadLog({ items, mine, onChange }: { items: ShelfItem[]; mine: boolean; onChange: () => void }) {
+  const toggleHidden = async (item: ShelfItem) => {
+    await api.updateShelfItem(item.id, { hidden: !item.hidden });
+    toast(item.hidden ? `“${item.title}” is visible on your profile` : `“${item.title}” is hidden from others`);
+    onChange();
+  };
+  return (
+    <section>
+      <h2 className="section-title">Read before</h2>
+      <div className="shelf">
+        {items.map((s) => (
+          <div key={s.id} className="book-card">
+            <div className="book-card-cover">
+              <Cover src={isbnCoverUrl(s.isbn13)} title={s.title} author={s.author} />
+              {s.hidden && (
+                <span className="kind-badge private-badge" title="Hidden from others">
+                  <LockIcon size={11} /> Hidden
+                </span>
+              )}
+            </div>
+            <div className="book-card-title">{s.title}</div>
+            <Stars value={s.rating} size={13} />
+            <div className="book-card-sub">
+              {s.dateRead ? new Date(s.dateRead).getFullYear() : s.author ?? ''}
+              {mine && (
+                <>
+                  {' · '}
+                  <button className="link-btn inline" onClick={() => void toggleHidden(s)}>
+                    {s.hidden ? 'Show' : 'Hide'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

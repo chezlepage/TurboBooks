@@ -1,0 +1,229 @@
+/* Ratings, reading goal, Goodreads import, want-to-read list. */
+
+.stars {
+  display: inline-flex;
+  gap: 2px;
+  color: var(--accent);
+  vertical-align: middle;
+}
+.stars span:not(.on),
+.stars button:not(.on) {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+.stars-input button {
+  padding: 2px;
+  border-radius: 6px;
+}
+.stars-input button:hover {
+  color: var(--accent);
+  opacity: 1;
+}
+.book-card .stars {
+  margin-top: 0.2rem;
+}
+
+.rating-block {
+  margin: 0 0 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+}
+.rating-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.rating-row .link-btn {
+  margin: 0 0 0 auto;
+}
+.rating-note {
+  width: 100%;
+  margin-top: 0.6rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  resize: vertical;
+}
+.rating-note:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+.goal-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0 0 1.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(242, 180, 90, 0.08), transparent 70%), var(--bg-raised);
+  border: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.goal-ring {
+  flex-shrink: 0;
+}
+.goal-ring-bg {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 6;
+}
+.goal-ring-fg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.4s;
+}
+.goal-text {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.goal-text strong {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+.goal-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.goal-edit input {
+  width: 5.5rem;
+}
+
+.import-card {
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+}
+.import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.import-head p {
+  margin: 0.15rem 0 0;
+}
+.import-steps {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+.import-steps ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.import-steps p {
+  margin: 0;
+}
+
+.section-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.section-row .link-btn {
+  margin: 0;
+}
+.want-add {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+.want-add input {
+  flex: 1 1 180px;
+}
+.free-banner {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(143, 199, 154, 0.1);
+  border: 1px solid rgba(143, 199, 154, 0.3);
+  color: var(--success);
+  font-size: 0.9rem;
+}
+.want-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.want-row {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.want-cover {
+  border-radius: 4px;
+}
+.want-cover.cover-placeholder .ph-author,
+.want-cover.cover-placeholder .ph-rule {
+  display: none;
+}
+.want-cover.cover-placeholder .ph-title {
+  font-size: 0.45rem;
+}
+.want-text {
+  min-width: 0;
+}
+.want-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.want-free {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+.want-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+.want-actions .link-btn {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.link-btn.inline {
+  margin: 0;
+  font-size: inherit;
+  font-weight: 500;
+}
+.elsewhere-list {
+  margin-bottom: 0.75rem;
+}
+@media (min-width: 960px) {
+  .want-list {
+    grid-template-columns: repeat(2, 1fr);
+    column-gap: 2rem;
+  }
+}

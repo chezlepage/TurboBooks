@@ -9,6 +9,7 @@ import { addToLibrary, canAccessBook, removeFromLibrary } from '../lib/library.j
 import { sendFileWithRange } from '../lib/stream.js';
 import { removeCoverFiles } from '../lib/scanner.js';
 import { getSleepMark } from './prefs.js';
+import { getMyRating } from './shelf.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -112,7 +113,15 @@ export async function bookRoutes(app: FastifyInstance) {
     const chapters = db
       .prepare('SELECT idx, title, start, end FROM chapters WHERE book_id = ? ORDER BY idx')
       .all(id);
-    return { book: { ...toBook(row), tracks, chapters, sleepMark: getSleepMark(request.user!.id, id) } };
+    return {
+      book: {
+        ...toBook(row),
+        tracks,
+        chapters,
+        sleepMark: getSleepMark(request.user!.id, id),
+        myRating: getMyRating(request.user!.id, id),
+      },
+    };
   });
 
   /** Add a book that's already on the server to my library (no download needed). */

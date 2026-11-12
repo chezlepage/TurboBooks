@@ -7,6 +7,7 @@ import '@fontsource-variable/literata';
 import './styles.css';
 import './styles-v4.css';
 import './styles-privacy.css';
+import './styles-shelf.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

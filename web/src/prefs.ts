@@ -15,6 +15,8 @@ export interface Prefs {
   shareActivity: boolean;
   /** Books that never appear on my profile for others. */
   hiddenBooks: number[];
+  /** Yearly reading goals, e.g. { "2026": 20 }. */
+  readingGoals: Record<string, number>;
 }
 
 const KEY = 'tb.prefs';
@@ -25,6 +27,7 @@ export const DEFAULT_PREFS: Prefs = {
   readerFontSize: 110,
   shareActivity: true,
   hiddenBooks: [],
+  readingGoals: {},
 };
 
 /** Hide or show one book on my profile. */

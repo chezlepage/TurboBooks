@@ -51,7 +51,41 @@ export interface BookDetail extends Book {
   chapters: Chapter[];
   /** Where this user last set a sleep timer that then stopped playback (recent only). */
   sleepMark: { position: number; at: number } | null;
+  /** My stars (1-5) and private-to-profile note for this book. */
+  myRating: { rating: number | null; note: string | null } | null;
 }
+
+/** A book on my shelves from outside the library (Goodreads import or added by hand). */
+export interface ShelfItem {
+  id: number;
+  shelf: 'want' | 'reading' | 'read';
+  title: string;
+  author: string | null;
+  isbn13: string | null;
+  rating: number | null;
+  review: string | null;
+  dateRead: number | null;
+  dateAdded: number;
+  hidden: boolean;
+  bookId?: number | null;
+  /** Project Gutenberg id when a free ebook exists. */
+  freeEbookId: string | null;
+  /** LibriVox (archive.org) id when a free audiobook exists. */
+  freeAudioId: string | null;
+}
+
+export interface GoodreadsImportSummary {
+  total: number;
+  added: number;
+  updated: number;
+  skipped: number;
+  byShelf: Record<string, number>;
+  linked: number;
+}
+
+/** Cover from Open Library by ISBN (falls back to a placeholder when there's none). */
+export const isbnCoverUrl = (isbn: string | null) =>
+  isbn ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-M.jpg?default=false` : null;
 
 export interface SearchResult {
   id: string;
@@ -235,6 +269,17 @@ export const api = {
   resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
   deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),
   addToLibrary: (id: number) => request('POST', `/api/books/${id}/library`, {}),
+  rateBook: (id: number, rating: number | null, note?: string | null) =>
+    request('PUT', `/api/books/${id}/rating`, { rating, note }),
+  shelf: () => request<{ items: ShelfItem[]; checkingFree: boolean }>('GET', '/api/shelf'),
+  importGoodreads: (csv: string) =>
+    request<{ summary: GoodreadsImportSummary }>('POST', '/api/shelf/import/goodreads', { csv }),
+  checkFree: () => request('POST', '/api/shelf/check-free', {}),
+  addToShelf: (title: string, author: string, shelf: ShelfItem['shelf'] = 'want') =>
+    request<{ id: number }>('POST', '/api/shelf', { title, author, shelf }),
+  updateShelfItem: (id: number, patch: Partial<Pick<ShelfItem, 'shelf' | 'hidden' | 'rating' | 'review'>>) =>
+    request('PATCH', `/api/shelf/${id}`, patch),
+  removeShelfItem: (id: number) => request('DELETE', `/api/shelf/${id}`),
   removeFromLibrary: (id: number) => request('DELETE', `/api/books/${id}/library`),
   /** Admin: files on the server nobody has added yet. */
   unclaimedBooks: () => request<{ books: Book[] }>('GET', '/api/books/unclaimed'),
