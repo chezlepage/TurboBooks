@@ -6,6 +6,7 @@ import { AuthProvider } from './auth';
 import '@fontsource-variable/literata';
 import './styles.css';
 import './styles-v4.css';
+import './styles-privacy.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

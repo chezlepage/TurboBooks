@@ -1,10 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, coverUrl } from '../api';
-import type { Activity, Person, PersonSummary } from '../api';
+import type { Activity, Person, PersonStats, PersonSummary } from '../api';
 import { Cover } from '../components/Cover';
 import { ChevronLeftIcon, GearIcon } from '../components/Icons';
 import { GridSkeleton } from '../components/Skeleton';
+import { toast } from '../components/Toast';
+import { setBookHidden, usePrefs } from '../prefs';
+
+// Privacy fields the server adds to profile responses.
+type Item = Activity & { hidden?: boolean };
+type Summary = Omit<PersonSummary, 'current' | 'stats'> & { private?: boolean; current: Item | null; stats: PersonStats | null };
+type Profile = Omit<Person, 'current' | 'finished' | 'stats'> & {
+  private?: boolean;
+  sharing?: boolean;
+  stats: PersonStats | null;
+  current: Item[];
+  finished: Item[];
+};
 
 /** "2 h ago", "yesterday", "3 days ago". */
 export function timeAgo(ts: number): string {
@@ -31,24 +44,42 @@ function avatarStyle(name: string) {
 const verb = (a: Activity) => (a.kind === 'ebook' ? 'Reading' : 'Listening to');
 const pct = (a: Activity) => `${Math.round(a.fraction * 100)}%`;
 
+const LockIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>
+);
+
 export function Profile() {
   const { id } = useParams();
-  const [person, setPerson] = useState<Person | null>(null);
-  const [people, setPeople] = useState<PersonSummary[] | null>(null);
+  const [person, setPerson] = useState<Profile | null>(null);
+  const [people, setPeople] = useState<Summary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [prefs, setPrefs] = usePrefs();
 
-  useEffect(() => {
-    setPerson(null);
-    setError(null);
+  const load = () =>
     api
       .people()
       .then(async (r) => {
-        setPeople(r.people);
-        const targetId = id ? Number(id) : r.people.find((p) => p.isYou)?.id;
-        if (targetId) setPerson((await api.person(targetId)).person);
+        const list = r.people as unknown as Summary[];
+        setPeople(list);
+        const targetId = id ? Number(id) : list.find((p) => p.isYou)?.id;
+        if (targetId) setPerson((await api.person(targetId)).person as unknown as Profile);
       })
       .catch((e: Error) => setError(e.message));
+
+  // Clear only when switching person; privacy changes refresh in place.
+  useEffect(() => {
+    setPerson(null);
   }, [id]);
+
+  useEffect(() => {
+    setError(null);
+    void load();
+    // Reload when my privacy choices change so the "hidden" markers stay right.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, prefs.shareActivity, prefs.hiddenBooks.length]);
 
   if (error)
     return (
@@ -58,6 +89,13 @@ export function Profile() {
     );
 
   const others = (people ?? []).filter((p) => p.id !== person?.id);
+  const hiddenCount = prefs.hiddenBooks.length;
+
+  const toggleSharing = () => {
+    const next = !prefs.shareActivity;
+    setPrefs({ shareActivity: next });
+    toast(next ? 'Your reading is visible to others' : 'Your reading is now private');
+  };
 
   return (
     <div className="page profile">
@@ -89,53 +127,88 @@ export function Profile() {
             )}
           </header>
 
-          <ul className="stats-row">
-            <li>
-              <strong>{person.stats.finished}</strong>
-              <span>finished</span>
-            </li>
-            <li>
-              <strong>{person.stats.finishedThisYear}</strong>
-              <span>this year</span>
-            </li>
-            <li>
-              <strong>{person.stats.inProgress}</strong>
-              <span>in progress</span>
-            </li>
-            <li>
-              <strong>{person.stats.listenedHours}</strong>
-              <span>hours listened</span>
-            </li>
-          </ul>
+          {person.private ? (
+            <div className="empty-state">
+              <LockIcon size={36} />
+              <h2>{person.username} keeps their shelf private</h2>
+              <p className="muted">What they read is just for them.</p>
+            </div>
+          ) : (
+            <>
+              {person.isYou && (
+                <section className="privacy-card">
+                  <label className="privacy-toggle">
+                    <span>
+                      <strong>Show my reading to others</strong>
+                      <span className="muted small">
+                        {prefs.shareActivity
+                          ? hiddenCount > 0
+                            ? `On, except ${hiddenCount} hidden book${hiddenCount === 1 ? '' : 's'}.`
+                            : 'On. Hide any single book from its ⋯ menu.'
+                          : 'Off. Nobody else sees what you read or your stats.'}
+                      </span>
+                    </span>
+                    <input type="checkbox" role="switch" className="switch" checked={prefs.shareActivity} onChange={toggleSharing} />
+                  </label>
+                </section>
+              )}
 
-          <section>
-            <h2 className="section-title">{person.isYou ? 'On your nightstand' : 'Currently'}</h2>
-            {person.current.length === 0 ? (
-              <p className="muted">Nothing in progress right now.</p>
-            ) : (
-              <ul className="activity-list">
-                {person.current.map((a) => (
-                  <ActivityRow key={a.id} a={a} />
-                ))}
-              </ul>
-            )}
-          </section>
+              {person.stats && (
+                <ul className="stats-row">
+                  <li>
+                    <strong>{person.stats.finished}</strong>
+                    <span>finished</span>
+                  </li>
+                  <li>
+                    <strong>{person.stats.finishedThisYear}</strong>
+                    <span>this year</span>
+                  </li>
+                  <li>
+                    <strong>{person.stats.inProgress}</strong>
+                    <span>in progress</span>
+                  </li>
+                  <li>
+                    <strong>{person.stats.listenedHours}</strong>
+                    <span>hours listened</span>
+                  </li>
+                </ul>
+              )}
 
-          {person.finished.length > 0 && (
-            <section>
-              <h2 className="section-title">Finished</h2>
-              <div className="shelf">
-                {person.finished.map((a) => (
-                  <Link key={a.id} to={`/book/${a.id}`} className="book-card">
-                    <div className="book-card-cover">
-                      <Cover src={coverUrl(a)} title={a.title} author={a.author} />
-                    </div>
-                    <div className="book-card-title">{a.title}</div>
-                    <div className="book-card-sub">{timeAgo(a.updatedAt)}</div>
-                  </Link>
-                ))}
-              </div>
-            </section>
+              <section>
+                <h2 className="section-title">{person.isYou ? 'On your nightstand' : 'Currently'}</h2>
+                {person.current.length === 0 ? (
+                  <p className="muted">Nothing in progress right now.</p>
+                ) : (
+                  <ul className="activity-list">
+                    {person.current.map((a) => (
+                      <ActivityRow key={a.id} a={a} mine={person.isYou} />
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {person.finished.length > 0 && (
+                <section>
+                  <h2 className="section-title">Finished</h2>
+                  <div className="shelf">
+                    {person.finished.map((a) => (
+                      <Link key={a.id} to={`/book/${a.id}`} className="book-card">
+                        <div className="book-card-cover">
+                          <Cover src={coverUrl(a)} title={a.title} author={a.author} />
+                          {a.hidden && (
+                            <span className="kind-badge private-badge" title="Hidden from others">
+                              <LockIcon size={11} /> Hidden
+                            </span>
+                          )}
+                        </div>
+                        <div className="book-card-title">{a.title}</div>
+                        <div className="book-card-sub">{timeAgo(a.updatedAt)}</div>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
           )}
         </>
       )}
@@ -153,18 +226,18 @@ export function Profile() {
                   <div className="person-text">
                     <div className="person-name">{p.isYou ? 'You' : p.username}</div>
                     <div className="muted small">
-                      {p.current ? (
+                      {p.private ? (
+                        'Private shelf'
+                      ) : p.current ? (
                         <>
                           {verb(p.current)} <em>{p.current.title}</em> · {pct(p.current)}
                         </>
                       ) : (
-                        `${p.stats.finished} finished`
+                        `${p.stats?.finished ?? 0} finished`
                       )}
                     </div>
                   </div>
-                  {p.current && (
-                    <Cover src={coverUrl(p.current)} title={p.current.title} className="person-cover" />
-                  )}
+                  {p.current && <Cover src={coverUrl(p.current)} title={p.current.title} className="person-cover" />}
                 </Link>
               </li>
             ))}
@@ -175,13 +248,20 @@ export function Profile() {
   );
 }
 
-function ActivityRow({ a }: { a: Activity }) {
+function ActivityRow({ a, mine }: { a: Item; mine: boolean }) {
   return (
-    <li>
+    <li className="activity-item">
       <Link to={`/book/${a.id}`} className="activity-row">
         <Cover src={coverUrl(a)} title={a.title} author={a.author} className="activity-cover" />
         <div className="activity-text">
-          <div className="activity-kicker">{verb(a)}</div>
+          <div className="activity-kicker">
+            {verb(a)}
+            {a.hidden && (
+              <span className="private-tag">
+                <LockIcon size={11} /> Hidden from others
+              </span>
+            )}
+          </div>
           <div className="activity-title">{a.title}</div>
           {a.author && <div className="muted small">{a.author}</div>}
           <div className="progress-line">
@@ -192,6 +272,17 @@ function ActivityRow({ a }: { a: Activity }) {
           </div>
         </div>
       </Link>
+      {mine && (
+        <button
+          className="link-btn activity-hide"
+          onClick={() => {
+            setBookHidden(a.id, !a.hidden);
+            toast(a.hidden ? `“${a.title}” is visible on your profile` : `“${a.title}” is hidden from others`);
+          }}
+        >
+          {a.hidden ? 'Show to others' : 'Hide from others'}
+        </button>
+      )}
     </li>
   );
 }

@@ -11,7 +11,20 @@ const prefsSchema = z.object({
   autoSleepNightOnly: z.boolean(),
   readerTheme: z.enum(['dark', 'black', 'sepia']).default('dark'),
   readerFontSize: z.number().int().min(70).max(220).default(110),
+  /** Show my reading activity to other people on this server. */
+  shareActivity: z.boolean().default(true),
+  /** Books that never appear on my profile for others, even when sharing is on. */
+  hiddenBooks: z.array(z.number().int().positive()).max(10000).default([]),
 });
+
+/** What a user has chosen to keep to themselves. Defaults to sharing everything. */
+export function getPrivacy(userId: number): { share: boolean; hidden: Set<number> } {
+  const row = db.prepare('SELECT data FROM user_prefs WHERE user_id = ?').get(userId) as { data: string } | undefined;
+  if (!row) return { share: true, hidden: new Set() };
+  const parsed = prefsSchema.safeParse(JSON.parse(row.data));
+  if (!parsed.success) return { share: true, hidden: new Set() };
+  return { share: parsed.data.shareActivity, hidden: new Set(parsed.data.hiddenBooks) };
+}
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const markBody = z.object({ position: z.number().min(0) });

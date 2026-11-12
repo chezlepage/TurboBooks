@@ -8,6 +8,7 @@ import { BooksIcon, ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/I
 import { BookSkeleton } from '../components/Skeleton';
 import { toast } from '../components/Toast';
 import { chapterAt, useClock, usePlayer } from '../player/PlayerContext';
+import { setBookHidden, usePrefs } from '../prefs';
 
 const SOURCE_LABELS: Record<string, string> = {
   archive: 'LibriVox',
@@ -26,6 +27,7 @@ export function BookPage() {
   const [showAllText, setShowAllText] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [prefs] = usePrefs();
 
   const load = () =>
     api
@@ -106,7 +108,14 @@ export function BookPage() {
     book.source ? SOURCE_LABELS[book.source] ?? book.source : 'Your files',
   ].filter(Boolean) as string[];
 
-  const hasMenu = started || finished || user?.isAdmin;
+  const isHidden = prefs.hiddenBooks.includes(book.id);
+  const toggleHidden = () => {
+    setMenuOpen(false);
+    setBookHidden(book.id, !isHidden);
+    toast(isHidden ? 'Visible on your profile again' : 'Hidden from your profile. Only you can see you have it.');
+  };
+  // Always available: the privacy toggle lives in this menu.
+  const hasMenu = true;
 
   return (
     <div className="page book-page">
@@ -127,6 +136,7 @@ export function BookPage() {
             {chips.map((c) => (
               <li key={c}>{c}</li>
             ))}
+            {isHidden && <li className="private-chip">Hidden from others</li>}
           </ul>
 
           {(started || finished) && (
@@ -174,6 +184,9 @@ export function BookPage() {
                 </button>
                 {menuOpen && (
                   <div className="menu" role="menu">
+                    <button role="menuitem" onClick={toggleHidden}>
+                      {isHidden ? 'Show on my profile' : 'Hide from my profile'}
+                    </button>
                     {(started || finished) && (
                       <button role="menuitem" onClick={resetProgress}>
                         Start over

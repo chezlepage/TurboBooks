@@ -11,10 +11,29 @@ export interface Prefs {
   readerTheme: 'dark' | 'black' | 'sepia';
   /** Ebook text size in percent. */
   readerFontSize: number;
+  /** Show my reading activity to other people on this server. */
+  shareActivity: boolean;
+  /** Books that never appear on my profile for others. */
+  hiddenBooks: number[];
 }
 
 const KEY = 'tb.prefs';
-export const DEFAULT_PREFS: Prefs = { autoSleep: 'off', autoSleepNightOnly: true, readerTheme: 'dark', readerFontSize: 110 };
+export const DEFAULT_PREFS: Prefs = {
+  autoSleep: 'off',
+  autoSleepNightOnly: true,
+  readerTheme: 'dark',
+  readerFontSize: 110,
+  shareActivity: true,
+  hiddenBooks: [],
+};
+
+/** Hide or show one book on my profile. */
+export function setBookHidden(bookId: number, hidden: boolean): void {
+  const current = new Set(loadPrefs().hiddenBooks);
+  if (hidden) current.add(bookId);
+  else current.delete(bookId);
+  savePrefs({ hiddenBooks: [...current] });
+}
 const listeners = new Set<(p: Prefs) => void>();
 
 function readLocal(): Prefs {
