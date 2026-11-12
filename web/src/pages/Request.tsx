@@ -20,6 +20,9 @@ const label = (s: string) => STATUS_LABEL[s] ?? s.replace(/_/g, ' ');
 const IN_FLIGHT = ['pending', 'searching', 'found', 'downloading', 'processing'];
 const RETRYABLE = ['failed', 'not_found'];
 
+/** Indexer titles often contain HTML entities (&ndash;, &oacute;). Decode without executing anything. */
+const decodeEntities = (s: string) => new DOMParser().parseFromString(s, 'text/html').documentElement.textContent ?? s;
+
 const formatSize = (b: number | null) =>
   b ? (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`) : '';
 
@@ -92,7 +95,7 @@ function ReleasePicker({ id, onDone, onError }: { id: number; onDone: () => void
       {releases.map((r) => (
         <li key={r.id} className="release">
           <div className="release-text">
-            <div className="release-title">{r.title}</div>
+            <div className="release-title">{decodeEntities(r.title)}</div>
             <div className="muted small">
               {[
                 r.source,
@@ -232,7 +235,7 @@ export function Request() {
         <section className="imports">
           <h2 className="section-title">Your requests</h2>
           {requests.slice(0, 15).map((r) => (
-            <div key={r.id} className="import-row">
+            <div key={r.id} className={`import-row ${picking === r.id ? 'import-row-wide' : ''}`}>
               <div className="import-text">
                 <div className="import-title">
                   {r.title} <span className="muted small">({r.bookType})</span>
@@ -241,20 +244,10 @@ export function Request() {
                   {RETRYABLE.includes(r.status) ? <span className="error">{label(r.status)}</span> : label(r.status)}
                   {r.needsAttention && r.issue ? ` · ${r.issue}` : ''}
                 </div>
-                {IN_FLIGHT.includes(r.status) && (
+                {IN_FLIGHT.includes(r.status) && !r.needsAttention && (
                   <div className="bar">
                     <div style={{ width: '35%' }} />
                   </div>
-                )}
-                {picking === r.id && (
-                  <ReleasePicker
-                    id={r.id}
-                    onError={setError}
-                    onDone={() => {
-                      setPicking(null);
-                      refresh();
-                    }}
-                  />
                 )}
               </div>
               {r.needsAttention && IN_FLIGHT.includes(r.status) && (
@@ -271,6 +264,18 @@ export function Request() {
                 <button className="icon-btn small-x" aria-label="Cancel request" onClick={act(() => api.wishlistCancel(r.id))}>
                   ×
                 </button>
+              )}
+              {picking === r.id && (
+                <div className="import-picker">
+                  <ReleasePicker
+                    id={r.id}
+                    onError={setError}
+                    onDone={() => {
+                      setPicking(null);
+                      refresh();
+                    }}
+                  />
+                </div>
               )}
             </div>
           ))}
