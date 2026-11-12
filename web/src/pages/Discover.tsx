@@ -2,12 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, formatDuration } from '../api';
-import type { Category, ImportJob, SearchParams, SearchResult } from '../api';
+import type { BookKind, Category, ImportJob, SearchParams, SearchResult } from '../api';
 import { Cover } from '../components/Cover';
 import { CheckIcon, PlusIcon } from '../components/Icons';
 
 const LS_ENGLISH = 'tb.discover.english';
+const LS_KIND = 'tb.discover.kind';
 const RECENT_DONE_MS = 30 * 60 * 1000;
+
+/** Import-queue source name for a search result's catalog. */
+const sourceOf = (r: SearchResult) => (r.kind === 'ebook' ? 'gutenberg' : 'archive');
 
 const readEnglish = () => {
   try {
@@ -19,6 +23,13 @@ const readEnglish = () => {
 
 export function Discover() {
   const navigate = useNavigate();
+  const [kind, setKind] = useState<BookKind>(() => {
+    try {
+      return localStorage.getItem(LS_KIND) === 'ebook' ? 'ebook' : 'audio';
+    } catch {
+      return 'audio';
+    }
+  });
   const [categories, setCategories] = useState<Category[]>([]);
   const [category, setCategory] = useState('bedtime');
   const [query, setQuery] = useState('');
@@ -36,10 +47,21 @@ export function Discover() {
 
   useEffect(() => {
     api
-      .categories()
+      .categories(kind)
       .then((r) => setCategories(r.categories))
       .catch(() => undefined);
-  }, []);
+  }, [kind]);
+
+  const pickKind = (k: BookKind) => {
+    if (k === kind) return;
+    setKind(k);
+    setResults(null);
+    try {
+      localStorage.setItem(LS_KIND, k);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const refreshImports = useCallback(() => {
     api
@@ -78,13 +100,13 @@ export function Discover() {
   }, []);
 
   const currentParams = (pageNo: number): SearchParams =>
-    activeQuery ? { q: activeQuery, english, page: pageNo } : { category, english, page: pageNo };
+    activeQuery ? { kind, q: activeQuery, english, page: pageNo } : { kind, category, english, page: pageNo };
 
   // Reload when the shelf, search, or language filter changes.
   useEffect(() => {
     void load(currentParams(0), false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, activeQuery, english, load]);
+  }, [kind, category, activeQuery, english, load]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -114,7 +136,7 @@ export function Discover() {
 
   const add = async (r: SearchResult) => {
     try {
-      await api.importBook(r.id, r.title);
+      await api.importBook(r.kind, r.id, r.title);
       setResults((rs) => rs?.map((x) => (x.id === r.id ? { ...x, importStatus: 'queued' } : x)) ?? null);
       refreshImports();
     } catch (e) {
@@ -124,9 +146,9 @@ export function Discover() {
 
   /** Library id if this recording is (now) in the library. */
   const bookIdFor = (r: SearchResult) =>
-    r.bookId ?? imports.find((i) => i.sourceId === r.id && i.status === 'done')?.bookId ?? null;
+    r.bookId ?? imports.find((i) => i.source === sourceOf(r) && i.sourceId === r.id && i.status === 'done')?.bookId ?? null;
   const isBusy = (r: SearchResult) =>
-    imports.some((i) => i.sourceId === r.id && (i.status === 'queued' || i.status === 'downloading'));
+    imports.some((i) => i.source === sourceOf(r) && i.sourceId === r.id && (i.status === 'queued' || i.status === 'downloading'));
 
   // Show running and failed jobs, plus ones that finished recently; one row per book.
   const visibleImports = imports
@@ -137,12 +159,33 @@ export function Discover() {
   return (
     <div className="page">
       <h1>Discover</h1>
+      <div className="segmented kind-filter" role="tablist">
+        <button role="tab" aria-selected={kind === 'audio'} className={kind === 'audio' ? 'active' : ''} onClick={() => pickKind('audio')}>
+          Audiobooks
+        </button>
+        <button role="tab" aria-selected={kind === 'ebook'} className={kind === 'ebook' ? 'active' : ''} onClick={() => pickKind('ebook')}>
+          Ebooks
+        </button>
+      </div>
       <p className="muted small">
-        Free public-domain audiobooks from{' '}
-        <a href="https://librivox.org" target="_blank" rel="noreferrer">
-          LibriVox
-        </a>
-        , read by volunteers. Most popular first.
+        {kind === 'audio' ? (
+          <>
+            Free public-domain audiobooks from{' '}
+            <a href="https://librivox.org" target="_blank" rel="noreferrer">
+              LibriVox
+            </a>
+            , read by volunteers.
+          </>
+        ) : (
+          <>
+            Free public-domain ebooks from{' '}
+            <a href="https://www.gutenberg.org" target="_blank" rel="noreferrer">
+              Project Gutenberg
+            </a>
+            .
+          </>
+        )}{' '}
+        Most popular first.
       </p>
 
       <form className="search-row" onSubmit={submit}>
@@ -200,7 +243,7 @@ export function Discover() {
               </div>
               {job.status === 'done' && job.bookId && (
                 <Link className="btn btn-small btn-primary" to={`/book/${job.bookId}`}>
-                  Listen
+                  {job.source === 'gutenberg' ? 'Read' : 'Listen'}
                 </Link>
               )}
               {job.status === 'failed' && (

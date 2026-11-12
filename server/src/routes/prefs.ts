@@ -9,6 +9,8 @@ export const SLEEP_MARK_TTL_MS = 18 * 60 * 60 * 1000;
 const prefsSchema = z.object({
   autoSleep: z.union([z.literal('off'), z.literal('chapter'), z.number().int().min(1).max(240)]),
   autoSleepNightOnly: z.boolean(),
+  readerTheme: z.enum(['dark', 'black', 'sepia']).default('dark'),
+  readerFontSize: z.number().int().min(70).max(220).default(110),
 });
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });

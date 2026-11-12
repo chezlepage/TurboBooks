@@ -101,6 +101,11 @@ const migrations: string[] = [
     PRIMARY KEY (user_id, book_id)
   );
   `,
+  // v3: ebooks. Ebook progress is a 0..1 fraction in `position` plus a reader locator (EPUB CFI).
+  `
+  ALTER TABLE books ADD COLUMN kind TEXT NOT NULL DEFAULT 'audio';
+  ALTER TABLE progress ADD COLUMN locator TEXT;
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

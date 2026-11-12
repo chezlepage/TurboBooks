@@ -6,13 +6,17 @@ import { config } from '../config.js';
 import { db, now } from '../db.js';
 import { requireAdmin, requireUser } from '../lib/auth.js';
 import { sendFileWithRange } from '../lib/stream.js';
+import { removeCoverFiles } from '../lib/scanner.js';
 import { getSleepMark } from './prefs.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
 const progressBody = z.object({
+  /** Seconds for audiobooks, 0..1 fraction for ebooks. */
   position: z.number().min(0),
   finished: z.boolean().optional(),
+  /** Ebook reader location (EPUB CFI). */
+  locator: z.string().max(4096).optional(),
 });
 
 interface BookRow {
@@ -25,8 +29,10 @@ interface BookRow {
   cover_path: string | null;
   source: string | null;
   added_at: number;
+  kind: 'audio' | 'ebook';
   position: number | null;
   finished: number | null;
+  locator: string | null;
   progress_updated_at: number | null;
 }
 
@@ -40,15 +46,16 @@ const toBook = (b: BookRow) => ({
   hasCover: b.cover_path !== null,
   source: b.source,
   addedAt: b.added_at,
+  kind: b.kind,
   progress:
     b.position === null
       ? null
-      : { position: b.position, finished: b.finished === 1, updatedAt: b.progress_updated_at! },
+      : { position: b.position, finished: b.finished === 1, locator: b.locator, updatedAt: b.progress_updated_at! },
 });
 
 const BOOK_SELECT = `
-  SELECT b.id, b.title, b.author, b.narrator, b.description, b.duration, b.cover_path, b.source, b.added_at,
-         p.position, p.finished, p.updated_at AS progress_updated_at
+  SELECT b.id, b.title, b.author, b.narrator, b.description, b.duration, b.cover_path, b.source, b.added_at, b.kind,
+         p.position, p.finished, p.locator, p.updated_at AS progress_updated_at
   FROM books b
   LEFT JOIN progress p ON p.book_id = b.id AND p.user_id = ?`;
 
@@ -93,6 +100,14 @@ export async function bookRoutes(app: FastifyInstance) {
     return sendFileWithRange(request, reply, row.cover_path, type);
   });
 
+  /** The EPUB file itself, for the in-browser reader. */
+  app.get('/api/books/:id/file', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const row = db.prepare("SELECT path FROM books WHERE id = ? AND kind = 'ebook'").get(id) as { path: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Ebook not found' });
+    return sendFileWithRange(request, reply, row.path, 'application/epub+zip');
+  });
+
   app.get('/api/tracks/:id/stream', async (request, reply) => {
     const { id } = idParam.parse(request.params);
     const row = db.prepare('SELECT path, mime FROM tracks WHERE id = ?').get(id) as { path: string; mime: string } | undefined;
@@ -104,15 +119,18 @@ export async function bookRoutes(app: FastifyInstance) {
     const { id } = idParam.parse(request.params);
     const body = progressBody.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: 'Invalid progress' });
-    const book = db.prepare('SELECT duration FROM books WHERE id = ?').get(id) as { duration: number } | undefined;
+    const book = db.prepare('SELECT duration, kind FROM books WHERE id = ?').get(id) as
+      | { duration: number; kind: 'audio' | 'ebook' }
+      | undefined;
     if (!book) return reply.code(404).send({ error: 'Book not found' });
     const position = Math.min(body.data.position, book.duration);
-    const finished = body.data.finished ?? position >= book.duration - 5;
+    const finished = body.data.finished ?? (book.kind === 'ebook' ? position >= 0.995 : position >= book.duration - 5);
     const updatedAt = now();
     db.prepare(
-      `INSERT INTO progress (user_id, book_id, position, finished, updated_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (user_id, book_id) DO UPDATE SET position = excluded.position, finished = excluded.finished, updated_at = excluded.updated_at`,
-    ).run(request.user!.id, id, position, finished ? 1 : 0, updatedAt);
+      `INSERT INTO progress (user_id, book_id, position, finished, locator, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (user_id, book_id) DO UPDATE SET position = excluded.position, finished = excluded.finished,
+         locator = COALESCE(excluded.locator, progress.locator), updated_at = excluded.updated_at`,
+    ).run(request.user!.id, id, position, finished ? 1 : 0, body.data.locator ?? null, updatedAt);
     return { ok: true, updatedAt };
   };
   app.put('/api/books/:id/progress', saveProgress);
@@ -128,11 +146,19 @@ export async function bookRoutes(app: FastifyInstance) {
   /** Admin: delete a book and its files from disk. */
   app.delete('/api/books/:id', { preHandler: requireAdmin }, async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const row = db.prepare('SELECT path FROM books WHERE id = ?').get(id) as { path: string } | undefined;
+    const row = db.prepare('SELECT path, kind FROM books WHERE id = ?').get(id) as { path: string; kind: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'Book not found' });
     if (!isInside(row.path, config.libraryDir)) return reply.code(400).send({ error: 'Refusing to delete outside library' });
     await fs.rm(row.path, { recursive: true, force: true });
-    await fs.rm(path.join(config.dataDir, 'covers', `${id}.jpg`), { force: true });
+    if (row.kind === 'ebook') {
+      // Imported ebooks live in their own folder next to a metadata file; remove the folder if that's all that's left.
+      const dir = path.dirname(row.path);
+      const left = await fs.readdir(dir).catch(() => ['?']);
+      if (isInside(dir, config.libraryDir) && left.every((n) => n === 'metadata.ebook.json')) {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    }
+    await removeCoverFiles(id);
     db.prepare('DELETE FROM books WHERE id = ?').run(id);
     return { ok: true };
   });

@@ -6,12 +6,30 @@ import { Cover } from '../components/Cover';
 import { usePlayer } from '../player/PlayerContext';
 
 type Filter = 'all' | 'unstarted' | 'finished';
+type KindFilter = 'all' | 'audio' | 'ebook';
+
+const LS_KIND = 'tb.library.kind';
 
 export function Library() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [kind, setKindState] = useState<KindFilter>(() => {
+    try {
+      return (localStorage.getItem(LS_KIND) as KindFilter) || 'all';
+    } catch {
+      return 'all';
+    }
+  });
+  const setKind = (k: KindFilter) => {
+    setKindState(k);
+    try {
+      localStorage.setItem(LS_KIND, k);
+    } catch {
+      /* ignore */
+    }
+  };
   const { book: current } = usePlayer();
 
   useEffect(() => {
@@ -25,7 +43,7 @@ export function Library() {
   const inProgress = useMemo(
     () =>
       (books ?? [])
-        .filter((b) => b.progress && !b.progress.finished && b.progress.position > 5)
+        .filter((b) => b.progress && !b.progress.finished && b.progress.position > (b.kind === 'ebook' ? 0.005 : 5))
         .sort((a, b) => b.progress!.updatedAt - a.progress!.updatedAt),
     [books],
   );
@@ -34,11 +52,12 @@ export function Library() {
     const q = query.trim().toLowerCase();
     return (books ?? []).filter((b) => {
       if (q && !`${b.title} ${b.author ?? ''}`.toLowerCase().includes(q)) return false;
+      if (kind !== 'all' && b.kind !== kind) return false;
       if (filter === 'unstarted') return !b.progress;
       if (filter === 'finished') return !!b.progress?.finished;
       return true;
     });
-  }, [books, query, filter]);
+  }, [books, query, filter, kind]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!books) return <div className="page"><p className="muted">Loading…</p></div>;
@@ -49,7 +68,7 @@ export function Library() {
         <h1>Library</h1>
         <div className="empty">
           <p>Your library is empty.</p>
-          <p className="muted">Find free classics on LibriVox, or drop audio files in the library folder on the server.</p>
+          <p className="muted">Find free audiobooks and ebooks in Discover, or drop audio files and EPUBs in the library folder on the server.</p>
           <Link className="btn btn-primary" to="/discover">
             Find books
           </Link>
@@ -72,6 +91,14 @@ export function Library() {
           </div>
         </section>
       )}
+
+      <div className="segmented kind-filter">
+        {(['all', 'audio', 'ebook'] as KindFilter[]).map((k) => (
+          <button key={k} className={kind === k ? 'active' : ''} onClick={() => setKind(k)}>
+            {k === 'all' ? 'All' : k === 'audio' ? 'Audiobooks' : 'Ebooks'}
+          </button>
+        ))}
+      </div>
 
       <div className="toolbar">
         <input
@@ -114,7 +141,7 @@ function BookCard({ book }: { book: Book }) {
       </div>
       <div className="book-card-title">{book.title}</div>
       <div className="book-card-sub">
-        {book.author ?? 'Unknown'} · {formatDuration(book.duration)}
+        {book.author ?? 'Unknown'} · {book.kind === 'ebook' ? 'Ebook' : formatDuration(book.duration)}
       </div>
     </Link>
   );

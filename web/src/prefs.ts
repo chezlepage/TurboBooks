@@ -7,10 +7,14 @@ export interface Prefs {
   autoSleep: 'off' | 'chapter' | number;
   /** Only auto-start the timer at night (8 pm – 6 am, device time). */
   autoSleepNightOnly: boolean;
+  /** Ebook reader colors. */
+  readerTheme: 'dark' | 'black' | 'sepia';
+  /** Ebook text size in percent. */
+  readerFontSize: number;
 }
 
 const KEY = 'tb.prefs';
-export const DEFAULT_PREFS: Prefs = { autoSleep: 'off', autoSleepNightOnly: true };
+export const DEFAULT_PREFS: Prefs = { autoSleep: 'off', autoSleepNightOnly: true, readerTheme: 'dark', readerFontSize: 110 };
 const listeners = new Set<(p: Prefs) => void>();
 
 function readLocal(): Prefs {

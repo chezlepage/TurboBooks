@@ -4,7 +4,7 @@ import { api, coverUrl, formatDuration, formatTime } from '../api';
 import type { BookDetail } from '../api';
 import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
-import { ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/Icons';
+import { BooksIcon, ChevronLeftIcon, PauseIcon, PlayIcon } from '../components/Icons';
 import { chapterAt, useClock, usePlayer } from '../player/PlayerContext';
 
 export function BookPage() {
@@ -32,10 +32,12 @@ export function BookPage() {
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!book) return <div className="page"><p className="muted">Loading…</p></div>;
 
-  const isCurrent = player.book?.id === book.id;
+  const isEbook = book.kind === 'ebook';
+  const isCurrent = !isEbook && player.book?.id === book.id;
   const position = isCurrent ? livePosition : book.progress && !book.progress.finished ? book.progress.position : 0;
   const currentChapter = chapterAt(book, position);
-  const started = position > 5;
+  const started = isEbook ? position > 0.005 : position > 5;
+  const readPct = Math.round(position * 100);
   const remaining = book.duration - position;
 
   const playFrom = (pos?: number) => {
@@ -51,7 +53,7 @@ export function BookPage() {
   };
 
   const markFinished = async () => {
-    await api.saveProgress(book.id, book.duration, true);
+    await api.saveProgress(book.id, isEbook ? 1 : book.duration, true);
     if (isCurrent) player.close();
     void load();
   };
@@ -76,15 +78,19 @@ export function BookPage() {
           {book.author && <p className="author">{book.author}</p>}
           {book.narrator && <p className="muted small">Read by {book.narrator}</p>}
           <p className="muted small">
-            {formatDuration(book.duration)}
-            {started && ` · ${formatDuration(remaining)} left`}
+            {isEbook ? 'Ebook' : formatDuration(book.duration)}
+            {started && (isEbook ? ` · ${readPct}% read` : ` · ${formatDuration(remaining)} left`)}
             {book.progress?.finished && ' · Finished'}
           </p>
         </div>
       </div>
 
       <div className="book-actions">
-        {isCurrent && player.playing ? (
+        {isEbook ? (
+          <button className="btn btn-primary btn-lg" onClick={() => navigate(`/read/${book.id}`)}>
+            <BooksIcon size={20} /> {started ? `Continue reading · ${readPct}%` : 'Read'}
+          </button>
+        ) : isCurrent && player.playing ? (
           <button className="btn btn-primary btn-lg" onClick={player.pause}>
             <PauseIcon size={20} /> Pause
           </button>

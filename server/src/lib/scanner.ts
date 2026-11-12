@@ -3,12 +3,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { db, now } from '../db.js';
+import { readEpubMeta } from './epub.js';
 import { AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, extractCover, probe } from './media.js';
 
 /**
  * Library layout rules:
  *  - Every directory that directly contains audio files is one book (all its audio files, natural-sorted).
  *  - Audio files sitting directly in the library root are one book each.
+ *  - Every .epub file is one ebook. A metadata.ebook.json next to it overrides its metadata.
  *  - Directories starting with "." are ignored (used for in-progress imports).
  *  - An optional metadata.json in a book directory overrides tags:
  *    { title, author, narrator, description, source, sourceId, trackTitles: string[] }
@@ -25,7 +27,8 @@ export interface BookMetadataFile {
 }
 
 interface Candidate {
-  /** Unique key: a directory path, or a file path for root-level loose files. */
+  kind: 'audio' | 'ebook';
+  /** Unique key: a directory path, or a file path for root-level loose files and ebooks. */
   key: string;
   dir: string;
   audioFiles: string[];
@@ -54,13 +57,14 @@ async function findCandidates(): Promise<Candidate[]> {
         const ext = path.extname(entry.name).toLowerCase();
         if (ext in AUDIO_EXTENSIONS) audio.push(full);
         else if (IMAGE_EXTENSIONS.has(ext)) images.push(full);
+        else if (ext === '.epub') out.push({ kind: 'ebook', key: full, dir, audioFiles: [], imageFiles: [] });
       }
     }
     audio.sort((a, b) => collator.compare(path.basename(a), path.basename(b)));
     if (isRoot) {
-      for (const file of audio) out.push({ key: file, dir, audioFiles: [file], imageFiles: [] });
+      for (const file of audio) out.push({ kind: 'audio', key: file, dir, audioFiles: [file], imageFiles: [] });
     } else if (audio.length > 0) {
-      out.push({ key: dir, dir, audioFiles: audio, imageFiles: images });
+      out.push({ kind: 'audio', key: dir, dir, audioFiles: audio, imageFiles: images });
     }
   }
   await walk(config.libraryDir, true);
@@ -69,8 +73,11 @@ async function findCandidates(): Promise<Candidate[]> {
 
 async function signatureOf(candidate: Candidate): Promise<string> {
   const h = crypto.createHash('sha1');
-  const files = [...candidate.audioFiles, ...candidate.imageFiles];
-  if (candidate.key === candidate.dir) files.push(path.join(candidate.dir, 'metadata.json'));
+  const files =
+    candidate.kind === 'ebook'
+      ? [candidate.key, path.join(candidate.dir, 'metadata.ebook.json')]
+      : [...candidate.audioFiles, ...candidate.imageFiles];
+  if (candidate.kind === 'audio' && candidate.key === candidate.dir) files.push(path.join(candidate.dir, 'metadata.json'));
   for (const file of files) {
     try {
       const st = await fs.stat(file);
@@ -201,6 +208,51 @@ async function indexBook(candidate: Candidate, signature: string, existingId?: n
   return bookId;
 }
 
+/** Removes any extracted cover (any extension) for a book id. */
+export async function removeCoverFiles(bookId: number): Promise<void> {
+  const dir = path.join(config.dataDir, 'covers');
+  const names = await fs.readdir(dir).catch(() => [] as string[]);
+  await Promise.all(names.filter((n) => path.parse(n).name === String(bookId)).map((n) => fs.rm(path.join(dir, n), { force: true })));
+}
+
+async function indexEbook(candidate: Candidate, signature: string, existingId?: number): Promise<number> {
+  const file = candidate.key;
+  const meta = await readEpubMeta(file);
+  let override: BookMetadataFile = {};
+  try {
+    override = JSON.parse(await fs.readFile(path.join(candidate.dir, 'metadata.ebook.json'), 'utf8')) as BookMetadataFile;
+  } catch {
+    /* none */
+  }
+  const title = override.title ?? meta.title ?? prettyName(file);
+  const author = override.author ?? meta.author ?? null;
+  const description = override.description || meta.description || null;
+  const fields = [signature, title, author, null, description, 1, null, override.source ?? null, override.sourceId ?? null];
+
+  let bookId = existingId;
+  if (bookId) {
+    db.prepare(
+      `UPDATE books SET signature=?, title=?, author=?, narrator=?, description=?, duration=?, cover_path=?, source=?, source_id=?, kind='ebook'
+       WHERE id=?`,
+    ).run(...fields, bookId);
+  } else {
+    const info = db
+      .prepare(
+        `INSERT INTO books (signature, title, author, narrator, description, duration, cover_path, source, source_id, path, added_at, kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ebook')`,
+      )
+      .run(...fields, file, now());
+    bookId = Number(info.lastInsertRowid);
+  }
+  await removeCoverFiles(bookId);
+  if (meta.cover) {
+    const out = path.join(config.dataDir, 'covers', `${bookId}${meta.cover.ext}`);
+    await fs.writeFile(out, meta.cover.data);
+    db.prepare('UPDATE books SET cover_path = ? WHERE id = ?').run(out, bookId);
+  }
+  return bookId;
+}
+
 export interface ScanResult {
   added: number;
   updated: number;
@@ -236,7 +288,8 @@ async function doScan(): Promise<ScanResult> {
     const signature = await signatureOf(candidate);
     if (prev && prev.signature === signature) continue;
     try {
-      await indexBook(candidate, signature, prev?.id);
+      if (candidate.kind === 'ebook') await indexEbook(candidate, signature, prev?.id);
+      else await indexBook(candidate, signature, prev?.id);
       if (prev) result.updated++;
       else result.added++;
     } catch (err) {
@@ -248,7 +301,7 @@ async function doScan(): Promise<ScanResult> {
   // Anything left in `existing` is gone from disk.
   for (const gone of existing.values()) {
     db.prepare('DELETE FROM books WHERE id = ?').run(gone.id);
-    await fs.rm(path.join(config.dataDir, 'covers', `${gone.id}.jpg`), { force: true });
+    await removeCoverFiles(gone.id);
     result.removed++;
   }
 

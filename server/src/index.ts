@@ -8,7 +8,7 @@ import { ZodError } from 'zod';
 import { config } from './config.js';
 import { db } from './db.js';
 import { createUser, purgeExpiredSessions } from './lib/auth.js';
-import { resumeImports } from './lib/archive.js';
+import { resumeImports } from './lib/imports.js';
 import { scanLibrary } from './lib/scanner.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
@@ -55,10 +55,12 @@ await app.register(prefsRoutes);
 // Serve the built web app, with SPA fallback to index.html.
 const hasWeb = fs.existsSync(path.join(config.webDir, 'index.html'));
 if (hasWeb) {
-  await app.register(fastifyStatic, { root: config.webDir, wildcard: false });
+  await app.register(fastifyStatic, { root: config.webDir });
 }
 app.setNotFoundHandler((request, reply) => {
-  if (request.url.startsWith('/api/') || !hasWeb || request.method !== 'GET') {
+  // Missing API routes and build assets get a real 404, never the SPA page (which would hide the error).
+  const isAsset = request.url.startsWith('/assets/') || /\.[a-z0-9]{2,5}(\?|$)/i.test(request.url);
+  if (request.url.startsWith('/api/') || isAsset || !hasWeb || request.method !== 'GET') {
     return reply.code(404).send({ error: 'Not found' });
   }
   return reply.header('Cache-Control', 'no-cache').sendFile('index.html');

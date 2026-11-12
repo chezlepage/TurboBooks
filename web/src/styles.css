@@ -1032,3 +1032,131 @@ section {
   font-variant-numeric: tabular-nums;
   font-size: 0.95rem;
 }
+
+/* ---------- v3: ebooks ---------- */
+.kind-filter {
+  margin-bottom: 0.9rem;
+}
+.reader {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.2s;
+}
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 8px;
+  transition: opacity 0.2s;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.reader-bar.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.reader-top {
+  height: calc(48px + var(--safe-t));
+  padding-top: var(--safe-t);
+}
+.reader-bottom {
+  height: calc(32px + var(--safe-b));
+  padding: 0 16px var(--safe-b);
+  justify-content: space-between;
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+.reader-title {
+  flex: 1;
+  text-align: center;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-aa {
+  font-weight: 700;
+  font-size: 1rem;
+}
+.reader-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0 12px;
+}
+.reader-viewer {
+  position: absolute;
+  inset: 0;
+}
+.reader-gestures {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  touch-action: pan-y;
+}
+.reader-msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0.6;
+}
+.reader-chapter {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+}
+.reader-pct {
+  font-variant-numeric: tabular-nums;
+}
+.reader-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  opacity: 0.5;
+  transition: width 0.3s;
+}
+.reader .sheet {
+  color: var(--text);
+}
+.reader-font-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.reader-font-row .btn {
+  min-width: 72px;
+  font-size: 1.05rem;
+}
+.reader-font-row span {
+  font-variant-numeric: tabular-nums;
+}
+.theme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.theme-swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid var(--line);
+}
+.toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}

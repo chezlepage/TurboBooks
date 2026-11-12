@@ -5,17 +5,12 @@
  * archive.org (which hosts every LibriVox recording) and download from there.
  */
 import fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { config } from '../config.js';
-import { db, now } from '../db.js';
+import { download, getJson, libraryState, moveIntoLibrary, safeName, updateImport } from './download.js';
 import type { BookMetadataFile } from './scanner.js';
 import { scanSingleDir } from './scanner.js';
 
-const USER_AGENT = 'TurboBooks/0.1 (self-hosted audiobook player)';
 const COLLECTION = 'librivoxaudio';
 export const SOURCE = 'archive';
 
@@ -34,6 +29,7 @@ export interface SearchResult {
   /** Set when this recording is already in the library. */
   bookId: number | null;
   importStatus: string | null;
+  kind: 'audio' | 'ebook';
 }
 
 const LANGUAGES: Record<string, string> = {
@@ -115,11 +111,6 @@ function cleanTitle(title: string, author: string): string {
   return title.replace(new RegExp(`,?\\s+by\\s+${escaped}\\s*$`, 'i'), '').trim() || title;
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) throw new Error(`Internet Archive returned ${res.status}`);
-  return (await res.json()) as T;
-}
 
 export const CATEGORIES: Record<string, { label: string; query?: string; maxSecs?: number }> = {
   popular: { label: 'Popular' },
@@ -193,19 +184,7 @@ export async function search(opts: QueryOptions): Promise<{ results: SearchResul
   const page = Math.max(0, opts.page ?? 0);
   const docs = await fetchDocs(parts.join(' AND '), rows, page);
 
-  const libraryIds = new Map(
-    (db.prepare('SELECT id, source_id FROM books WHERE source = ?').all(SOURCE) as { id: number; source_id: string }[]).map(
-      (r) => [r.source_id, r.id],
-    ),
-  );
-  const imports = new Map(
-    (
-      db.prepare('SELECT source_id, status FROM imports WHERE source = ? ORDER BY id').all(SOURCE) as {
-        source_id: string;
-        status: string;
-      }[]
-    ).map((r) => [r.source_id, r.status]),
-  );
+  const { bookIds: libraryIds, imports } = libraryState(SOURCE);
 
   const seen = new Set<string>();
   const results: SearchResult[] = [];
@@ -234,14 +213,15 @@ export async function search(opts: QueryOptions): Promise<{ results: SearchResul
       sourceUrl: `https://archive.org/details/${encodeURIComponent(id)}`,
       bookId: libraryIds.get(id) ?? null,
       importStatus: imports.get(id) ?? null,
+      kind: 'audio',
     });
   }
   return { results, hasMore: docs.length === rows };
 }
 
 // ---------------------------------------------------------------------------
-// Import queue: downloads one book at a time into <library>/.incoming, then
-// moves it into <library>/LibriVox/<Author> - <Title> and rescans.
+// Import: downloads into <library>/.incoming, then moves it into
+// <library>/LibriVox/<Author> - <Title> and rescans. Queued by imports.ts.
 // ---------------------------------------------------------------------------
 
 interface IaFile {
@@ -288,41 +268,7 @@ function pickCover(files: IaFile[]): IaFile | undefined {
 const fileUrl = (id: string, name: string) =>
   `https://archive.org/download/${encodeURIComponent(id)}/${name.split('/').map(encodeURIComponent).join('/')}`;
 
-const safeName = (s: string) =>
-  s
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[. ]+$/, '')
-    .trim()
-    .slice(0, 120) || 'Untitled';
-
-function updateImport(id: number, fields: { status?: string; progress?: number; error?: string | null; book_id?: number | null }) {
-  const sets = Object.keys(fields).map((k) => `${k} = @${k}`);
-  db.prepare(`UPDATE imports SET ${sets.join(', ')}, updated_at = @updated_at WHERE id = @id`).run({
-    ...fields,
-    updated_at: now(),
-    id,
-  });
-}
-
-async function download(url: string, dest: string, attempts = 3): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT }, signal: AbortSignal.timeout(15 * 60_000) });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} downloading ${path.basename(dest)}`);
-      const tmp = `${dest}.part`;
-      await pipeline(Readable.fromWeb(res.body as WebReadableStream), createWriteStream(tmp));
-      await fs.rename(tmp, dest);
-      return;
-    } catch (err) {
-      if (attempt >= attempts) throw err;
-      await new Promise((r) => setTimeout(r, 3000 * attempt));
-    }
-  }
-}
-
-async function runImport(importId: number, identifier: string): Promise<void> {
-  updateImport(importId, { status: 'downloading', progress: 0, error: null });
+export async function runArchiveImport(importId: number, identifier: string): Promise<void> {
   const meta = await getJson<IaMetadata>(`https://archive.org/metadata/${encodeURIComponent(identifier)}`);
   const files = meta.files ?? [];
   const audio = pickAudioFiles(files);
@@ -368,59 +314,8 @@ async function runImport(importId: number, identifier: string): Promise<void> {
   await fs.writeFile(path.join(work, 'metadata.json'), JSON.stringify(metadata, null, 2));
 
   const finalDir = path.join(config.libraryDir, 'LibriVox', safeName(`${author} - ${title}`));
-  await fs.mkdir(path.dirname(finalDir), { recursive: true });
-  await fs.rm(finalDir, { recursive: true, force: true });
-  await fs.rename(work, finalDir);
+  await moveIntoLibrary(work, finalDir);
 
   const bookId = await scanSingleDir(finalDir);
   updateImport(importId, { status: 'done', progress: 1, book_id: bookId });
-}
-
-let queueRunning = false;
-
-async function drainQueue(): Promise<void> {
-  if (queueRunning) return;
-  queueRunning = true;
-  try {
-    for (;;) {
-      const next = db
-        .prepare("SELECT id, source_id FROM imports WHERE status = 'queued' ORDER BY id LIMIT 1")
-        .get() as { id: number; source_id: string } | undefined;
-      if (!next) break;
-      try {
-        await runImport(next.id, next.source_id);
-      } catch (err) {
-        console.warn(`[import] ${next.source_id} failed:`, err);
-        updateImport(next.id, { status: 'failed', error: (err as Error).message });
-      }
-    }
-  } finally {
-    queueRunning = false;
-  }
-}
-
-export function enqueueImport(identifier: string, title: string, userId: number): number {
-  const active = db
-    .prepare("SELECT id FROM imports WHERE source = ? AND source_id = ? AND status IN ('queued', 'downloading')")
-    .get(SOURCE, identifier) as { id: number } | undefined;
-  if (active) return active.id;
-  const info = db
-    .prepare(
-      `INSERT INTO imports (source, source_id, title, status, progress, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, 'queued', 0, ?, ?, ?)`,
-    )
-    .run(SOURCE, identifier, title, userId, now(), now());
-  void drainQueue();
-  return Number(info.lastInsertRowid);
-}
-
-/** Re-queues imports interrupted by a restart. Already-downloaded files are reused. */
-export function resumeImports(): void {
-  db.prepare("UPDATE imports SET status = 'queued' WHERE status = 'downloading'").run();
-  void drainQueue();
-}
-
-export function retryImport(id: number): void {
-  db.prepare("UPDATE imports SET status = 'queued', error = NULL WHERE id = ? AND status = 'failed'").run(id);
-  void drainQueue();
 }
