@@ -14,6 +14,7 @@ import { config } from '../../config.js';
 import { db, now } from '../../db.js';
 import { safeName } from '../download.js';
 import { addToLibrary, inLibrary } from '../library.js';
+import { isImageEpub } from '../comic.js';
 import { scanSingleDir } from '../scanner.js';
 import { castRequest, costUsd, estimate, labelledLines, notesRequests, parseResult, segment } from './annotate.js';
 import type { CastMember, ChapterNotes, SegChapter } from './annotate.js';
@@ -117,8 +118,19 @@ export function checkEligible(userId: number, ebookId: number): { ok: true; book
 async function readBook(book: EbookRow) {
   const chapters = await extractChapters(book.path);
   if (chapters.length === 0) throw new Error('No readable text found in this ebook');
-  return segment(chapters);
+  const seg = segment(chapters);
+  // Manga and comics sold as EPUB (every page a picture; the same check the comic reader uses), or
+  // almost no text at all: nothing to read aloud, so refuse before any Claude spend. Illustrated
+  // children's books still qualify (The Tale of Peter Rabbit is ~1,000 words).
+  const words = seg.chapters.reduce((n, c) => n + c.paragraphs.flat().reduce((m, s) => m + s.text.split(/\s+/).filter(Boolean).length, 0), 0);
+  if (words < MIN_WORDS || (await isImageEpub(book.path))) {
+    throw Object.assign(new Error('This book is pictures, not text, so it can’t be read aloud'), { statusCode: 400 });
+  }
+  return seg;
 }
+
+/** Fewer words than this is captions or page numbers, not a story. */
+const MIN_WORDS = 300;
 
 export async function estimateFor(userId: number, ebookId: number, multiVoice: boolean) {
   const elig = checkEligible(userId, ebookId);
