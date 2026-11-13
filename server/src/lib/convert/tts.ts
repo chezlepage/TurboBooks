@@ -163,10 +163,20 @@ export async function voiceChapter(opts: {
   const skip = new Set(opts.notes.flatMap((n) => n.skip_paragraphs));
   const pron = opts.notes.flatMap((n) => n.pronounce);
   const speakers = new Map(opts.notes.flatMap((n) => n.speakers).map((s) => [s.q, s.speaker]));
-  const partFor = (q?: number) => {
+  // A labelled line ("Jess: …") Claude couldn't attribute: match the label to a cast name.
+  const byLabel = (label?: string) => {
+    if (!label || !opts.characterVoices) return null;
+    const l = label.toLowerCase();
+    const names = [...opts.characterVoices.keys()];
+    return names.find((n) => n.toLowerCase() === l) ?? names.find((n) => n.toLowerCase().split(/\s+/)[0] === l) ?? null;
+  };
+  const partFor = (q?: number, label?: string) => {
     if (!opts.characterVoices || q === undefined) return 'narrator';
     const who = speakers.get(q);
-    return who && who !== 'narrator' && opts.characterVoices.has(who) ? who : 'narrator';
+    if (who && who !== 'narrator' && opts.characterVoices.has(who)) return who;
+    if (who === 'narrator') return 'narrator';
+    const named = byLabel(label);
+    return named && named !== 'narrator' ? named : 'narrator';
   };
   const voiceOf = (part: string) => (part === 'narrator' ? opts.narrator : (opts.characterVoices?.get(part) ?? opts.narrator));
 
@@ -187,10 +197,12 @@ export async function voiceChapter(opts: {
     // Merge neighbouring segments spoken by the same part into one run.
     const runs: { part: string; text: string }[] = [];
     for (const seg of paras[i]) {
-      const part = seg.kind === 'quote' ? partFor(seg.q) : 'narrator';
+      const part = seg.kind === 'quote' ? partFor(seg.q, seg.label) : 'narrator';
+      // A character's own voice says who's talking; in the narrator's voice the name is read out.
+      const text = seg.label && part === 'narrator' ? `${seg.label}: ${seg.text}` : seg.text;
       const last = runs[runs.length - 1];
-      if (last && last.part === part) last.text += ` ${seg.text}`;
-      else runs.push({ part, text: seg.text });
+      if (last && last.part === part) last.text += ` ${text}`;
+      else runs.push({ part, text });
     }
     for (const run of runs) {
       const start = seconds(bytes);

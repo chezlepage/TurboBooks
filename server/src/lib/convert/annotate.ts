@@ -31,6 +31,8 @@ export interface Segment {
   text: string;
   /** Book-wide quote id (quotes only). */
   q?: number;
+  /** Name a line is labelled with instead of quote marks: text messages, chats, scripts ("Jess: on my way"). */
+  label?: string;
 }
 export interface SegChapter {
   index: number;
@@ -67,11 +69,60 @@ function splitQuotes(text: string, nextQ: () => number): Segment[] {
   return out;
 }
 
+/** "Jess: how's the dog logo coming": a name of 1-3 capitalised words, a colon, the line. */
+const LABELLED_LINE = /^(\p{Lu}[\p{L}\p{M}'’.-]*(?: \p{Lu}[\p{L}\p{M}'’.-]*){0,2}):\s+(\S.*)$/u;
+/** Labels that head a line but aren't anyone speaking. */
+const NOT_SPEAKERS = new Set(
+  'note notes nb ps p.s warning caution tip hint chapter part book volume act scene section step update edit subject re fwd from to cc bcc date sent time location place setting ingredients summary source quote answer question prologue epilogue interlude appendix figure table map'.split(' '),
+);
+/** "A Clash of Kings", "Volume I": a title after the colon, not something said. */
+const titleLike = (t: string) => {
+  const ws = t.split(/\s+/);
+  return ws.length >= 2 && !/[.!?…,;]/.test(t) && t !== t.toUpperCase() && ws.every((w) => /^(\p{Lu}|of|the|a|an|and|in|on|to|for)/u.test(w));
+};
+
+const labelled = (p: string) => {
+  const m = LABELLED_LINE.exec(p);
+  if (!m) return null;
+  const [, label, text] = m;
+  // Headings, captions and handles: "Book One: …", "Shallan's Sketchbook: …", "Twitter: @someone".
+  if (NOT_SPEAKERS.has(label.split(' ')[0].toLowerCase()) || /['’]s\b/.test(label) || /^(@|https?:)/.test(text)) return null;
+  return { label, text };
+};
+
+/**
+ * Lines labelled with a speaker's name (text-message exchanges, chat logs, script-style dialogue)
+ * become quotes with that label, so they're voiced by the character like any dialogue. A line
+ * counts when its name labels at least 3 lines in the book (texts often alternate with
+ * narration), or when it sits in a run of such lines and isn't a title ("Part Two: A Title").
+ * A one-off "Monday: …" stays narration.
+ */
+export function labelledLines(chapters: string[][]): ({ label: string; text: string } | null)[][] {
+  const lines = chapters.map((paras) => paras.map(labelled));
+  const counts = new Map<string, number>();
+  for (const l of lines.flat()) if (l) counts.set(l.label, (counts.get(l.label) ?? 0) + 1);
+  return lines.map((ls) =>
+    ls.map((l, i) => (l && ((counts.get(l.label) ?? 0) >= 3 || ((ls[i - 1] || ls[i + 1]) && !titleLike(l.text))) ? l : null)),
+  );
+}
+
+/**
+ * Splits new books only. Books already made keep the chapters.json they were split into, so
+ * their quote ids (which Claude's notes refer to) never move.
+ */
 export function segment(chapters: Chapter[]): { chapters: SegChapter[]; quotes: number } {
   let q = 0;
   const nextQ = () => ++q;
+  const lines = labelledLines(chapters.map((c) => c.paragraphs));
   return {
-    chapters: chapters.map((c) => ({ index: c.index, title: c.title, paragraphs: c.paragraphs.map((p) => splitQuotes(p, nextQ)) })),
+    chapters: chapters.map((c, ci) => ({
+      index: c.index,
+      title: c.title,
+      paragraphs: c.paragraphs.map((p, pi): Segment[] => {
+        const line = lines[ci][pi];
+        return line ? [{ kind: 'quote', text: line.text, q: nextQ(), label: line.label }] : splitQuotes(p, nextQ);
+      }),
+    })),
     quotes: q,
   };
 }
@@ -147,6 +198,7 @@ const SYSTEM_NOTES = `You prepare book chapters to be read aloud by a text-to-sp
 You never rewrite or repeat the book's text; you only return short notes as JSON.
 
 The chapter arrives as numbered paragraphs like [p12]. Quoted speech is wrapped as ⟦q34⟧…⟦/q34⟧.
+A line written as Name: ⟦q34⟧…⟦/q34⟧ is a text message, chat or script line sent or spoken by that name.
 
 Return:
 - skip: true only if the whole chunk is not part of the story to be narrated: tables of contents, lists of illustrations, indexes, publisher/transcriber notes, copyright or license text. A preface, dedication or introduction written by the author is NOT skipped.
@@ -155,13 +207,16 @@ Return:
 - pronounce: things a speech engine will misread, with what to say instead: abbreviations ("Mr." is fine, but "&c." → "et cetera", "Dr" in a street name → "Drive"), Roman numerals used as numbers ("Chapter IV" → "Chapter Four", "Henry VIII" → "Henry the Eighth"), unusual names or foreign words with a plain phonetic respelling, dates and money in old formats ("£5 10s." → "five pounds ten shillings"). Only include items that actually appear in this chunk; keep the list short and skip anything an English speech engine handles well.`;
 
 const SYSTEM_CAST = `You read a whole book and list the characters who speak, so each can be given a distinct voice in an audiobook.
-Return only characters who have quoted dialogue. Merge every way the text refers to the same person into one entry: the canonical name plus aliases (titles, nicknames, surnames, "the Doctor"). Give gender and rough age from the text; use "unknown" when the text doesn't say. Limit to the 24 most talkative characters, most talkative first.
+Return only characters who have quoted dialogue, including people who only appear in text messages or chats (lines like "Name: ⟦q12⟧…⟦/q12⟧"). Merge every way the text refers to the same person into one entry: the canonical name plus aliases (titles, nicknames, surnames, "the Doctor"). Give gender and rough age from the text; use "unknown" when the text doesn't say. Limit to the 24 most talkative characters, most talkative first.
 If the book is told in the first person, do NOT list the narrator: their spoken lines are read in the narrator's voice.`;
 
 const render = (ch: SegChapter, from: number, to: number) =>
   ch.paragraphs
     .slice(from, to)
-    .map((segs, k) => `[p${from + k}] ${segs.map((s) => (s.kind === 'quote' ? `⟦q${s.q}⟧${s.text}⟦/q${s.q}⟧` : s.text)).join(' ')}`)
+    .map(
+      (segs, k) =>
+        `[p${from + k}] ${segs.map((s) => (s.kind === 'quote' ? `${s.label ? `${s.label}: ` : ''}⟦q${s.q}⟧${s.text}⟦/q${s.q}⟧` : s.text)).join(' ')}`,
+    )
     .join('\n');
 
 /** Splits long chapters so each request stays a comfortable size (~12k words). */

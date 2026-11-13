@@ -15,7 +15,7 @@ import { db, now } from '../../db.js';
 import { safeName } from '../download.js';
 import { addToLibrary, inLibrary } from '../library.js';
 import { scanSingleDir } from '../scanner.js';
-import { castRequest, costUsd, estimate, notesRequests, parseResult, segment } from './annotate.js';
+import { castRequest, costUsd, estimate, labelledLines, notesRequests, parseResult, segment } from './annotate.js';
 import type { CastMember, ChapterNotes, SegChapter } from './annotate.js';
 import { extractChapters } from './epubText.js';
 import { castVoices, listVoices, voiceChapter } from './tts.js';
@@ -685,8 +685,55 @@ async function drain(): Promise<void> {
   }
 }
 
+/**
+ * One-time upgrade for multi-voice books made before text-message lines ("Jess: on my way") were
+ * recognised: those paragraphs become labelled quotes, so the character's voice reads them. They
+ * get new quote ids after the existing ones, so Claude's notes still match; who says them comes
+ * from the label (see voiceChapter). Only the chapters containing them are re-recorded, through
+ * the same queue as a voice change. Returns whether anything was queued.
+ */
+async function upgradeLabelledLines(row: ConversionRow): Promise<boolean> {
+  const dir = workDir(row.id);
+  const flag = path.join(dir, 'labelled-lines.v1');
+  if (!row.multi_voice || existsSync(flag)) return false;
+  const chapters = await readJson<SegChapter[]>(path.join(dir, 'chapters.json'));
+  const notes = await readJson<Record<string, ChapterNotes>>(path.join(dir, 'notes.json'));
+  if (!chapters || !notes || !existsSync(castFile(row.id))) return false;
+
+  const text = (segs: { text: string }[]) => segs.map((x) => x.text).join(' ');
+  const lines = labelledLines(chapters.map((c) => c.paragraphs.map(text)));
+  let q = Math.max(0, ...chapters.flatMap((c) => c.paragraphs.flat().map((x) => x.q ?? 0)));
+  const changed = new Set<number>();
+  chapters.forEach((c, ci) =>
+    c.paragraphs.forEach((segs, pi) => {
+      const line = lines[ci][pi];
+      if (!line || segs.some((x) => x.label)) return;
+      c.paragraphs[pi] = [{ kind: 'quote', text: line.text, q: ++q, label: line.label }];
+      changed.add(c.index);
+    }),
+  );
+  if (changed.size > 0) {
+    const kept = keptChapters(chapters, notes);
+    const files = kept.map((c, i) => (changed.has(c.index) ? trackFile(i, kept.length) : null)).filter((f): f is string => f !== null);
+    await fs.copyFile(path.join(dir, 'chapters.json'), path.join(dir, 'chapters.before-labelled-lines.json'));
+    await writeJson(path.join(dir, 'chapters.json'), chapters);
+    if (files.length) {
+      const redo = readRedo(row.id) ?? { from: 0, files: {} };
+      const at = Date.now();
+      for (const f of files) redo.files[f] = at;
+      writeRedo(row.id, redo);
+      console.log(`[convert] ${row.id}: text-message lines now voiced by their characters; re-recording ${files.length} chapter(s)`);
+    }
+  }
+  writeFileSync(flag, '');
+  return changed.size > 0;
+}
+
 /** Picks up conversions interrupted by a restart. */
-export function resumeConversions(): void {
+export async function resumeConversions(): Promise<void> {
+  for (const r of db.prepare("SELECT * FROM conversions WHERE status = 'done' AND audio_book_id IS NOT NULL").all() as ConversionRow[]) {
+    await upgradeLabelledLines(r).catch((err) => console.warn(`[convert] ${r.id} labelled-lines upgrade failed:`, err));
+  }
   // Voice changes that didn't finish: pick them up again.
   for (const r of db.prepare("SELECT * FROM conversions WHERE status = 'done' AND audio_book_id IS NOT NULL").all() as ConversionRow[]) {
     const pending = readRedo(r.id);
