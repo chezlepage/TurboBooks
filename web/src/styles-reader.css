@@ -48,3 +48,44 @@
   color: var(--text-dim);
   line-height: 1.25;
 }
+
+/* Settings → Reading: same pickers as the reader's Aa sheet, plus a live preview. */
+.reading-prefs .reader-sub {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.reading-preview {
+  margin-top: 0.75rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  line-height: 1.6;
+  max-height: 16rem;
+  overflow: hidden;
+  transition: font-size 0.15s ease;
+}
+.reading-preview p {
+  margin: 0 0 0.8em;
+}
+.reading-preview p:last-child {
+  margin-bottom: 0;
+}
+.reading-size {
+  display: grid;
+  grid-template-columns: auto 1fr auto 3.2rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+.reading-size input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.reading-size-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}

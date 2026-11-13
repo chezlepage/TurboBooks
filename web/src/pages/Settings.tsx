@@ -5,6 +5,7 @@ import type { AdminUser, KindleSettings } from '../api';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { ChevronLeftIcon } from '../components/Icons';
+import { ReadingPrefs } from '../components/ReadingPrefs';
 import { usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
 
@@ -20,6 +21,7 @@ export function Settings() {
         Signed in as <strong>{user?.username}</strong>
         {user?.isAdmin && ' (admin)'}
       </p>
+      <ReadingPrefs />
       <Bedtime />
       <Kindle />
       <ChangePassword />
