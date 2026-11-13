@@ -29,7 +29,8 @@ export interface SearchResult {
   /** Set when this recording is already in the library. */
   bookId: number | null;
   importStatus: string | null;
-  kind: 'audio' | 'ebook';
+  /** Which Discover shelf it came from (comics are ebooks once in the library). */
+  kind: 'audio' | 'ebook' | 'comic';
 }
 
 const LANGUAGES: Record<string, string> = {

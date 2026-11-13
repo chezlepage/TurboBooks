@@ -1,5 +1,6 @@
 /**
- * One-at-a-time download queue shared by all catalogs (LibriVox audio, Gutenberg ebooks).
+ * One-at-a-time download queue shared by all catalogs (LibriVox audio, Gutenberg ebooks,
+ * public-domain comics).
  *
  * Files are stored once: if a book is already on the server it is simply added to the
  * requester's library, and if two people ask for the same book while it's downloading,
@@ -9,11 +10,13 @@ import { db, now } from '../db.js';
 import { runArchiveImport } from './archive.js';
 import { updateImport } from './download.js';
 import { runGutenbergImport } from './gutenberg.js';
+import { runImport as runPdComicsImport } from './pdcomics.js';
 import { addToLibrary } from './library.js';
 
 const HANDLERS: Record<string, (importId: number, sourceId: string) => Promise<void>> = {
   archive: runArchiveImport,
   gutenberg: runGutenbergImport,
+  pdcomics: runPdComicsImport,
 };
 
 let queueRunning = false;

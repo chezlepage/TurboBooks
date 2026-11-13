@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, formatDuration } from '../api';
-import type { BookKind, Category, ImportJob, SearchParams, SearchResult } from '../api';
+import type { Category, DiscoverKind, ImportJob, SearchParams, SearchResult } from '../api';
 import { Cover } from '../components/Cover';
 import { ListSkeleton } from '../components/Skeleton';
 import { toast } from '../components/Toast';
@@ -13,7 +13,9 @@ const LS_KIND = 'tb.discover.kind';
 const RECENT_DONE_MS = 30 * 60 * 1000;
 
 /** Import-queue source name for a search result's catalog. */
-const sourceOf = (r: SearchResult) => (r.kind === 'ebook' ? 'gutenberg' : 'archive');
+const sourceOf = (r: SearchResult) => (r.kind === 'ebook' ? 'gutenberg' : r.kind === 'comic' ? 'pdcomics' : 'archive');
+const KIND_LABEL: Record<DiscoverKind, string> = { audio: 'Audiobook', ebook: 'Ebook', comic: 'Comic' };
+const SOURCE_LABEL: Record<DiscoverKind, string> = { audio: 'LibriVox', ebook: 'Project Gutenberg', comic: 'Internet Archive' };
 
 const readEnglish = () => {
   try {
@@ -25,9 +27,10 @@ const readEnglish = () => {
 
 export function Discover() {
   const navigate = useNavigate();
-  const [kind, setKind] = useState<BookKind>(() => {
+  const [kind, setKind] = useState<DiscoverKind>(() => {
     try {
-      return localStorage.getItem(LS_KIND) === 'ebook' ? 'ebook' : 'audio';
+      const saved = localStorage.getItem(LS_KIND);
+      return saved === 'ebook' || saved === 'comic' ? saved : 'audio';
     } catch {
       return 'audio';
     }
@@ -51,11 +54,15 @@ export function Discover() {
   useEffect(() => {
     api
       .categories(kind)
-      .then((r) => setCategories(r.categories))
+      .then((r) => {
+        setCategories(r.categories);
+        // Each shelf has its own categories: keep the current one only if this shelf has it too.
+        setCategory((c) => (r.categories.some((x) => x.id === c) ? c : (r.categories[0]?.id ?? c)));
+      })
       .catch(() => undefined);
   }, [kind]);
 
-  const pickKind = (k: BookKind) => {
+  const pickKind = (k: DiscoverKind) => {
     if (k === kind) return;
     setKind(k);
     setResults(null);
@@ -176,6 +183,9 @@ export function Discover() {
         <button role="tab" aria-selected={kind === 'ebook'} className={kind === 'ebook' ? 'active' : ''} onClick={() => pickKind('ebook')}>
           Ebooks
         </button>
+        <button role="tab" aria-selected={kind === 'comic'} className={kind === 'comic' ? 'active' : ''} onClick={() => pickKind('comic')}>
+          Comics
+        </button>
       </div>
       <p className="muted small">
         {kind === 'audio' ? (
@@ -186,16 +196,24 @@ export function Discover() {
             </a>
             , read by volunteers.
           </>
-        ) : (
+        ) : kind === 'ebook' ? (
           <>
             Free public-domain ebooks from{' '}
             <a href="https://www.gutenberg.org" target="_blank" rel="noreferrer">
               Project Gutenberg
             </a>
-            .
+            . Most popular first.
           </>
-        )}{' '}
-        Most popular first.
+        ) : (
+          <>
+            Classic comics old enough to be public domain (first published by 1930), scanned by libraries and collectors on the{' '}
+            <a href="https://archive.org/details/comics" target="_blank" rel="noreferrer">
+              Internet Archive
+            </a>
+            . A hand-picked shelf: the Archive's own labels can't be trusted for comics.
+          </>
+        )}
+        {kind === 'audio' && ' Most popular first.'}
       </p>
 
       <form className="search-row" onSubmit={submit}>
@@ -253,7 +271,7 @@ export function Discover() {
               </div>
               {job.status === 'done' && job.bookId && (
                 <Link className="btn btn-small btn-primary" to={`/book/${job.bookId}`}>
-                  {job.source === 'gutenberg' ? 'Read' : 'Listen'}
+                  {job.source === 'archive' ? 'Listen' : 'Read'}
                 </Link>
               )}
               {job.status === 'failed' && (
@@ -380,10 +398,10 @@ function PreviewSheet({
   onClose: () => void;
 }) {
   const facts = [
-    r.kind === 'ebook' ? 'Ebook' : 'Audiobook',
+    KIND_LABEL[r.kind],
     r.durationSecs > 0 ? formatDuration(r.durationSecs) : null,
     r.language || null,
-    r.kind === 'ebook' ? 'Project Gutenberg' : 'LibriVox',
+    SOURCE_LABEL[r.kind],
   ].filter(Boolean) as string[];
   return (
     <div className="sheet-backdrop" onClick={onClose}>

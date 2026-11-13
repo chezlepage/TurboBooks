@@ -4,6 +4,7 @@ import { db } from '../db.js';
 import * as archive from '../lib/archive.js';
 import { requireUser } from '../lib/auth.js';
 import * as gutenberg from '../lib/gutenberg.js';
+import * as pdcomics from '../lib/pdcomics.js';
 import { dismissImport, enqueueImport, retryImport } from '../lib/imports.js';
 
 /** Each kind of book comes from its own free catalog. */
@@ -22,9 +23,16 @@ const CATALOGS = {
     search: gutenberg.search,
     isValidId: gutenberg.isValidGutenbergId,
   },
+  comic: {
+    source: pdcomics.SOURCE,
+    name: 'The Internet Archive',
+    categories: pdcomics.CATEGORIES,
+    search: pdcomics.search,
+    isValidId: pdcomics.isValidId,
+  },
 } as const;
 
-const kindSchema = z.enum(['audio', 'ebook']).default('audio');
+const kindSchema = z.enum(['audio', 'ebook', 'comic']).default('audio');
 
 const searchQuery = z
   .object({

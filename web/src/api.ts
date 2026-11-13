@@ -140,8 +140,11 @@ export interface SearchResult {
   /** Set when this recording is already in the library. */
   bookId: number | null;
   importStatus: string | null;
-  kind: BookKind;
+  kind: DiscoverKind;
 }
+
+/** Discover's shelves: audiobooks, ebooks, and public-domain comics (ebooks once added). */
+export type DiscoverKind = BookKind | 'comic';
 
 export interface Category {
   id: string;
@@ -149,7 +152,7 @@ export interface Category {
 }
 
 export interface SearchParams {
-  kind?: BookKind;
+  kind?: DiscoverKind;
   q?: string;
   category?: string;
   english?: boolean;
@@ -463,8 +466,8 @@ export const api = {
     qs.set('page', String(p.page ?? 0));
     return request<{ results: SearchResult[]; hasMore: boolean }>('GET', `/api/discover/search?${qs}`);
   },
-  categories: (kind: BookKind) => request<{ categories: Category[] }>('GET', `/api/discover/categories?kind=${kind}`),
-  importBook: (kind: BookKind, id: string, title: string) =>
+  categories: (kind: DiscoverKind) => request<{ categories: Category[] }>('GET', `/api/discover/categories?kind=${kind}`),
+  importBook: (kind: DiscoverKind, id: string, title: string) =>
     // bookId: it was already on the server and is now in your library (no download needed).
     request<{ importId?: number; bookId?: number }>('POST', '/api/discover/import', { kind, id, title }),
   imports: () => request<{ imports: ImportJob[] }>('GET', '/api/imports'),
