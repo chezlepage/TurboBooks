@@ -269,9 +269,12 @@ export interface KindleSettings {
 export interface TtsVoice {
   id: string;
   label: string;
-  accent: 'US' | 'UK';
+  /** "US", "UK", or e.g. "French accent". */
+  accent: string;
   gender: 'female' | 'male';
   featured: boolean;
+  /** voice: a Kokoro voice; mix: two blended; accent: another language's voice reading English. */
+  kind: 'voice' | 'mix' | 'accent';
 }
 
 export interface Conversion {

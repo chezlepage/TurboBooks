@@ -39,7 +39,11 @@ export function VoiceSelect({
   label: string;
 }) {
   const featured = voices.filter((v) => v.featured);
-  const more = voices.filter((v) => !v.featured);
+  const groups: [string, TtsVoice[]][] = [
+    ['More voices', voices.filter((v) => !v.featured && v.kind === 'voice')],
+    ['Mixed voices (two blended)', voices.filter((v) => !v.featured && v.kind === 'mix')],
+    ['Accents', voices.filter((v) => !v.featured && v.kind === 'accent')],
+  ];
   return (
     <span className="voice-select">
       <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
@@ -50,13 +54,17 @@ export function VoiceSelect({
             </option>
           ))}
         </optgroup>
-        <optgroup label="More voices">
-          {more.map((v) => (
-            <option key={v.id} value={v.id}>
-              {voiceDescription(v)}
-            </option>
+        {groups
+          .filter(([, list]) => list.length > 0)
+          .map(([name, list]) => (
+            <optgroup key={name} label={name}>
+              {list.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {voiceDescription(v)}
+                </option>
+              ))}
+            </optgroup>
           ))}
-        </optgroup>
       </select>
       <button
         type="button"

@@ -12,29 +12,107 @@ export const SAMPLE_RATE = 24_000;
 export interface Voice {
   id: string;
   label: string;
-  accent: 'US' | 'UK';
+  /** "US", "UK", or e.g. "French accent". */
+  accent: string;
   gender: 'female' | 'male';
   featured: boolean;
+  /** voice: one of Kokoro's English voices; mix: two of them blended; accent: a voice from another language reading English. */
+  kind: 'voice' | 'mix' | 'accent';
 }
 
 const FEATURED = new Set(['af_heart', 'af_bella', 'af_nicole', 'bf_emma', 'am_michael', 'am_fenrir', 'bm_george', 'bm_fable']);
 const NICE_NAMES: Record<string, string> = { af_heart: 'Heart', af_nicole: 'Nicole (soft)', bm_fable: 'Fable' };
 
-/** English voices Kokoro offers, labelled for people. Older "v0" duplicates are left out. */
+/**
+ * Two voices of the same accent and gender blended 50/50 by Kokoro: a new, steady voice with no
+ * extra model. Gives big casts a distinct voice each instead of repeats. These ids end up stored
+ * in conversions (voice, voice_map), so never rename the scheme; only add pairs.
+ */
+const MIXES: [string, string][] = [
+  ['af_bella', 'af_sky'],
+  ['af_heart', 'af_nova'],
+  ['af_nicole', 'af_river'],
+  ['af_jessica', 'af_kore'],
+  ['af_sarah', 'af_aoede'],
+  ['af_alloy', 'af_jadzia'],
+  ['af_heart', 'af_sarah'],
+  ['af_nova', 'af_river'],
+  ['am_michael', 'am_puck'],
+  ['am_fenrir', 'am_eric'],
+  ['am_adam', 'am_onyx'],
+  ['am_liam', 'am_echo'],
+  ['am_michael', 'am_liam'],
+  ['bf_emma', 'bf_lily'],
+  ['bf_alice', 'bf_isabella'],
+  ['bf_emma', 'bf_isabella'],
+  ['bm_george', 'bm_daniel'],
+  ['bm_fable', 'bm_lewis'],
+  ['bm_george', 'bm_lewis'],
+];
+const mixId = (a: string, b: string) => `${a.slice(0, 2)}_mix_${a.slice(3)}_${b.slice(3)}`;
+const MIX_ID = /^([ab][fm])_mix_([a-z]+)_([a-z]+)$/;
+
+/** Voices from Kokoro's other languages reading English with English pronunciation rules: an accent. */
+const ACCENTS: Record<string, string> = {
+  e: 'Spanish accent',
+  f: 'French accent',
+  i: 'Italian accent',
+  p: 'Brazilian accent',
+  h: 'Indian accent',
+};
+const ACCENT_ID = /^([efiph])([fm])_(?!santa)[a-z]+$/;
+
+/** Our voice id → the voice string Kokoro takes, and the language rules to read the text with. */
+export function kokoroVoice(id: string): { voice: string; langCode?: string } {
+  const mix = MIX_ID.exec(id);
+  if (mix) return { voice: `${mix[1]}_${mix[2]}+${mix[1]}_${mix[3]}` };
+  if (ACCENT_ID.test(id)) return { voice: id, langCode: 'a' };
+  return { voice: id };
+}
+
+const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const nameOf = (id: string) =>
+  NICE_NAMES[id]?.replace(/ \(.*\)$/, '') ?? titleCase(id.split('_').slice(1).filter((p) => p !== 'inno').join(' '));
+const KIND_ORDER = { voice: 0, mix: 1, accent: 2 };
+
+/** Voices Kokoro offers, labelled for people: English voices, blends of them, and accents. Older "v0" duplicates are left out. */
 export function describeVoices(ids: string[]): Voice[] {
-  return ids
+  const has = new Set(ids);
+  const english: Voice[] = ids
     .filter((id) => /^(af|am|bf|bm)_/.test(id) && !/_v0/.test(id))
-    .map((id) => {
-      const name = id.split('_').slice(1).filter((p) => p !== 'inno').join(' ');
-      return {
-        id,
-        label: NICE_NAMES[id] ?? name.charAt(0).toUpperCase() + name.slice(1),
-        accent: id.startsWith('b') ? ('UK' as const) : ('US' as const),
-        gender: id[1] === 'f' ? ('female' as const) : ('male' as const),
-        featured: FEATURED.has(id),
-      };
-    })
-    .sort((a, b) => Number(b.featured) - Number(a.featured) || a.accent.localeCompare(b.accent) || a.label.localeCompare(b.label));
+    .map((id) => ({
+      id,
+      label: NICE_NAMES[id] ?? nameOf(id),
+      accent: id.startsWith('b') ? 'UK' : 'US',
+      gender: id[1] === 'f' ? 'female' : 'male',
+      featured: FEATURED.has(id),
+      kind: 'voice',
+    }));
+  const mixes: Voice[] = MIXES.filter(([a, b]) => has.has(a) && has.has(b)).map(([a, b]) => ({
+    id: mixId(a, b),
+    label: `${nameOf(a)} + ${nameOf(b)}`,
+    accent: a.startsWith('b') ? 'UK' : 'US',
+    gender: a[1] === 'f' ? 'female' : 'male',
+    featured: false,
+    kind: 'mix',
+  }));
+  const accents: Voice[] = ids
+    .filter((id) => ACCENT_ID.test(id))
+    .map((id) => ({
+      id,
+      label: nameOf(id),
+      accent: ACCENTS[id[0]],
+      gender: id[1] === 'f' ? 'female' : 'male',
+      featured: false,
+      kind: 'accent',
+    }));
+  return [...english, ...mixes, ...accents].sort(
+    (a, b) =>
+      Number(b.featured) - Number(a.featured) ||
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+      a.accent.localeCompare(b.accent) ||
+      a.label.localeCompare(b.label),
+  );
 }
 
 let voiceCache: { at: number; voices: Voice[] } | null = null;
@@ -50,12 +128,20 @@ export async function listVoices(): Promise<Voice[]> {
 }
 
 export async function speak(text: string, voice: string, format: 'pcm' | 'mp3' = 'pcm'): Promise<Buffer> {
+  const k = kokoroVoice(voice);
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetch(`${config.kokoroUrl}/v1/audio/speech`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'kokoro', input: text, voice, response_format: format, speed: 1.0 }),
+        body: JSON.stringify({
+          model: 'kokoro',
+          input: text,
+          voice: k.voice,
+          ...(k.langCode ? { lang_code: k.langCode } : {}),
+          response_format: format,
+          speed: 1.0,
+        }),
         signal: AbortSignal.timeout(120_000),
       });
       if (!res.ok) throw new Error(`Kokoro returned ${res.status}`);
@@ -100,11 +186,18 @@ const NOVELTY = /santa|_inno$/;
 /** Picks a voice for every cast member: same accent as the narrator where possible, never the narrator's own voice. */
 export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]): Map<string, string> {
   const accent = narrator.startsWith('b') ? 'UK' : 'US';
-  const usable = voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id));
-  const sameAccent = (gender: 'female' | 'male') => usable.filter((v) => v.gender === gender && v.accent === accent).map((v) => v.id);
+  // Accented voices are only ever picked by hand.
+  const usable = voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id) && v.kind !== 'accent');
+  const of = (gender: 'female' | 'male', kind: Voice['kind'], same: boolean) =>
+    usable.filter((v) => v.gender === gender && v.kind === kind && (v.accent === accent) === same).map((v) => v.id);
+  // Real voices only: the "other women/men" slots below pick from the end of this list.
+  const sameAccent = (gender: 'female' | 'male') => of(gender, 'voice', true);
+  // Real voices in the narrator's accent, then blends of them, before any other accent.
   const pool = (gender: 'female' | 'male') => [
     ...sameAccent(gender),
-    ...usable.filter((v) => v.gender === gender && v.accent !== accent).map((v) => v.id),
+    ...of(gender, 'mix', true),
+    ...of(gender, 'voice', false),
+    ...of(gender, 'mix', false),
   ];
   const female = pool('female');
   const male = pool('male');
