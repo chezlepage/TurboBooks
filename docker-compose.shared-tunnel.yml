@@ -13,6 +13,9 @@ services:
     container_name: turbobooks
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Read along (syncing ebook text to audiobooks). Set WHISPER_URL= (empty) in .env to turn it off.
+      WHISPER_URL: ${WHISPER_URL-http://whisper:9000}
     volumes:
       - ./data:/data
       - ${LIBRARY_PATH:-./library}:/library
@@ -39,9 +42,35 @@ services:
               count: 1
               capabilities: [gpu]
 
+  # Speech recognition for "Read along": lines an ebook's text up with its audiobook. GPU-backed,
+  # only TurboBooks talks to it. The model (~0.5 GB) downloads into ./data/whisper on first use,
+  # which is why this one container also gets outbound internet; it leaves the GPU after 10 idle minutes.
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:v1.10.0-gpu
+    container_name: turbobooks-whisper
+    restart: unless-stopped
+    environment:
+      ASR_ENGINE: faster_whisper
+      ASR_MODEL: small
+      ASR_QUANTIZATION: float16
+      MODEL_IDLE_TIMEOUT: "600"
+    volumes:
+      - ./data/whisper:/root/.cache/whisper
+    networks:
+      - internal
+      - downloads
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 networks:
   internal:
     internal: true
+  downloads: {}
   tunnel:
     external: true
     name: ${TUNNEL_NETWORK:-mediastack_default}

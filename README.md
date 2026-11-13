@@ -6,6 +6,7 @@ Self-hosted audiobook player and ebook reader built for falling asleep. Two (or 
 
 - **Discover**: browse shelves (Bedtime & children, Under 90 min, Mystery, Sci-fi…) or search the LibriVox collection on the Internet Archive, most popular version first, and add books with one tap. The server downloads them in the background.
 - **Ebooks**: EPUB reader with dark / black / dim-sepia themes, font size, table of contents, tap or swipe to turn pages. Discover → Ebooks adds free books from Project Gutenberg.
+- **Read along**: while listening, show the book's text with the sentence being read highlighted; tap a sentence to jump there. Works when the ebook of the same book is in your library too. The first time, a GPU speech-recognition container (Whisper) lines the text up with the narration, about 1 minute per 40 minutes of audio.
 - **Send to Kindle / PocketBook**: one tap emails an ebook to your Kindle or PocketBook. Guided in-app setup for readers; the admin adds an email account once ([docs/KINDLE.md](docs/KINDLE.md)).
 - **Bring your own files**: drop MP3/M4B/M4A/OGG/FLAC or EPUB into the library folder. Each audio folder is one book; M4B chapters are detected; every .epub is one ebook.
 - **Sleep timer**: 5–90 min or end of chapter. Volume fades out over the last 45 s (desktop/Android; iOS ignores web volume, so it stops without fading).

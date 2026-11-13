@@ -21,6 +21,7 @@ import { profileRoutes } from './routes/profiles.js';
 import { shelfRoutes } from './routes/shelf.js';
 import { convertRoutes } from './routes/convert.js';
 import { resumeConversions } from './lib/convert/jobs.js';
+import { readAlongRoutes } from './routes/readalong.js';
 import { requestRoutes } from './routes/requests.js';
 
 const app = Fastify({
@@ -63,6 +64,7 @@ await app.register(profileRoutes);
 await app.register(shelfRoutes);
 await app.register(convertRoutes);
 await app.register(requestRoutes);
+await app.register(readAlongRoutes);
 
 // Serve the built web app, with SPA fallback to index.html.
 const hasWeb = fs.existsSync(path.join(config.webDir, 'index.html'));

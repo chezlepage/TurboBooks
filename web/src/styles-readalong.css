@@ -1,0 +1,141 @@
+/* Read along: ebook text over the player, synced to the narration. */
+.readalong {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+.readalong-wait,
+.readalong-synced {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.readalong-head {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: calc(env(safe-area-inset-top) + 0.4rem) 0.75rem 0.4rem;
+}
+.readalong-head > span:nth-child(2) {
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.75;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.readalong-head .icon-btn {
+  color: inherit;
+}
+.readalong-size {
+  display: flex;
+  gap: 0.15rem;
+}
+.readalong-size .icon-btn {
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-width: 44px;
+}
+.readalong-wait-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  text-align: center;
+  padding: 1.5rem;
+  max-width: 34rem;
+  margin: 0 auto;
+}
+.readalong-bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+.readalong-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.6s ease;
+}
+.readalong-text {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem 40vh;
+  line-height: 1.65;
+  max-width: 40rem;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+.readalong-text p {
+  margin: 0 0 1em;
+}
+.ra-s {
+  border-radius: 0.25em;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.ra-s.timed {
+  cursor: pointer;
+}
+.ra-s.active {
+  background: color-mix(in srgb, var(--ra-accent) 22%, transparent);
+  color: color-mix(in srgb, var(--ra-accent) 35%, currentColor);
+  padding: 0.05em 0.1em;
+  margin: 0 -0.1em;
+}
+.readalong-end {
+  text-align: center;
+  margin-top: 2rem;
+}
+.readalong-follow {
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 6.5rem);
+  transform: translateX(-50%);
+  padding: 0.6rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ra-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--ra-accent) 18%, #000);
+  color: var(--ra-accent);
+  font: inherit;
+  font-weight: 600;
+  min-height: 44px;
+  cursor: pointer;
+}
+.readalong-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  padding: 0.6rem 1rem calc(env(safe-area-inset-bottom) + 0.9rem);
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+.readalong-controls .icon-btn {
+  color: inherit;
+}
+.readalong-play {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ra-accent);
+  color: #111;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.player-extras {
+  flex-wrap: wrap;
+}

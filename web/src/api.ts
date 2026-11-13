@@ -46,6 +46,33 @@ export interface Chapter {
   end: number;
 }
 
+/** Read along: an audiobook's ebook text, synced sentence by sentence. */
+export type ReadAlongStatus =
+  | { state: 'off'; ebook?: undefined }
+  | { state: 'no_ebook'; ebook: null }
+  | { state: 'idle'; ebook: { id: number; title: string }; minutes: number }
+  | {
+      state: 'queued' | 'working' | 'failed';
+      ebook: { id: number; title: string };
+      minutes: number;
+      progress: number;
+      detail: string;
+      error: string | null;
+    }
+  | {
+      state: 'ready';
+      ebook: { id: number; title: string };
+      minutes: number;
+      chapters: { title: string; start: number | null }[];
+    };
+/** [sentence, seconds into the audiobook (null: not read aloud / couldn't be placed)] */
+export type ReadAlongSentence = [string, number | null];
+export interface ReadAlongChapter {
+  title: string;
+  start: number | null;
+  paras: ReadAlongSentence[][];
+}
+
 export interface BookDetail extends Book {
   tracks: Track[];
   chapters: Chapter[];
@@ -374,6 +401,10 @@ export const api = {
   changeBookVoice: (bookId: number, part: string, voice: string, position: number) =>
     request<{ ok: true }>('PUT', `/api/books/${bookId}/voices`, { part, voice, position }),
   /** Admin: files on the server nobody has added yet. */
+  readAlong: (bookId: number) => request<ReadAlongStatus>('GET', `/api/books/${bookId}/readalong`),
+  startReadAlong: (bookId: number) => request<ReadAlongStatus>('POST', `/api/books/${bookId}/readalong`, {}),
+  readAlongChapter: (bookId: number, n: number) =>
+    request<ReadAlongChapter>('GET', `/api/books/${bookId}/readalong/chapters/${n}`),
   unclaimedBooks: () => request<{ books: Book[] }>('GET', '/api/books/unclaimed'),
 
   search: (p: SearchParams) => {

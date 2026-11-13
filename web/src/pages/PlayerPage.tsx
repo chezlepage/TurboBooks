@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { coverUrl, formatDuration, formatTime } from '../api';
+import { api, coverUrl, formatDuration, formatTime } from '../api';
 import { Cover } from '../components/Cover';
 import {
   BackIcon,
+  BookOpenIcon,
   ChevronDownIcon,
   DimIcon,
   ForwardIcon,
@@ -17,6 +18,7 @@ import {
 } from '../components/Icons';
 import { ChangeVoiceSheet } from '../components/ChangeVoiceSheet';
 import { ChaptersSheet } from '../components/ChaptersSheet';
+import { ReadAlong } from '../components/ReadAlong';
 import { SleepSheet } from '../components/SleepSheet';
 import { SPEEDS, chapterAt, useClock, usePlayer } from '../player/PlayerContext';
 
@@ -29,7 +31,24 @@ export function PlayerPage() {
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [voicesOpen, setVoicesOpen] = useState(false);
   const [scrub, setScrub] = useState<number | null>(null);
+  const [readAlongOpen, setReadAlongOpen] = useState(false);
+  const [readAlongOn, setReadAlongOn] = useState(false);
   const { book } = player;
+  const bookId = book?.id;
+
+  // Offer read along unless the server has it switched off.
+  useEffect(() => {
+    setReadAlongOn(false);
+    if (!bookId) return;
+    let live = true;
+    api
+      .readAlong(bookId)
+      .then((s) => live && setReadAlongOn(s.state !== 'off'))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [bookId]);
 
   if (!book) {
     return (
@@ -179,6 +198,12 @@ export function PlayerPage() {
           <MoonIcon size={18} />
           {player.sleep && sleepRemaining !== null ? formatTime(sleepRemaining) : 'Sleep'}
         </button>
+        {readAlongOn && (
+          <button className="pill" onClick={() => setReadAlongOpen(true)}>
+            <BookOpenIcon size={18} />
+            Read along
+          </button>
+        )}
         {book.source === 'tts' && (
           <button className={`pill ${player.changingVoice ? 'pill-active' : ''}`} onClick={() => setVoicesOpen(true)}>
             {player.changingVoice ? 'Re-recording…' : 'Voices'}
@@ -189,6 +214,7 @@ export function PlayerPage() {
       {sleepOpen && <SleepSheet onClose={() => setSleepOpen(false)} />}
       {chaptersOpen && <ChaptersSheet onClose={() => setChaptersOpen(false)} />}
       {voicesOpen && <ChangeVoiceSheet onClose={() => setVoicesOpen(false)} />}
+      {readAlongOpen && <ReadAlong book={book} onClose={() => setReadAlongOpen(false)} />}
 
       {night && (
         <div className="night" role="dialog" aria-label="Night screen">

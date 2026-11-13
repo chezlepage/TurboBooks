@@ -52,6 +52,8 @@ export const config = {
   convertMonthlyBudgetUsd: Number(env.CONVERT_MONTHLY_BUDGET_USD ?? 100),
   /** Use the Batch API (half price, usually done within the hour). Off = direct calls, full price, faster. */
   convertUseBatch: (env.CONVERT_USE_BATCH ?? 'true') !== 'false',
+  /** Read along: Whisper speech-to-text (whisper-asr-webservice) for syncing ebook text to audiobooks. Empty = off. */
+  whisperUrl: (env.WHISPER_URL ?? '').replace(/\/+$/, ''),
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });

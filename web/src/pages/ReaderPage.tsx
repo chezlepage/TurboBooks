@@ -10,14 +10,10 @@ import { ChevronLeftIcon, ListIcon } from '../components/Icons';
 import { loadPrefs, usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
 import '../styles-reader.css';
-import { READER_FONTS, applyBookFont, bookFontCss, ensureAppFontFaces } from '../readerFonts';
+import { READER_FONTS, READER_THEMES, applyBookFont, bookFontCss, ensureAppFontFaces } from '../readerFonts';
 import type { ReaderFont } from '../readerFonts';
 
-const THEMES: Record<Prefs['readerTheme'], { bg: string; fg: string; link: string; label: string }> = {
-  dark: { bg: '#0b0b10', fg: '#d2cdc0', link: '#f2b45a', label: 'Dark' },
-  black: { bg: '#000000', fg: '#9c968a', link: '#b48748', label: 'Black' },
-  sepia: { bg: '#17120b', fg: '#c7b28c', link: '#d9a55a', label: 'Sepia' },
-};
+const THEMES = READER_THEMES;
 const SAVE_DEBOUNCE_MS = 1500;
 const FONT_MIN = 80;
 const FONT_MAX = 200;

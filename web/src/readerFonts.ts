@@ -24,6 +24,13 @@ export const READER_FONTS: Record<ReaderFont, { label: string; hint: string; fam
   opendyslexic: { label: 'OpenDyslexic', hint: 'Made for readers with dyslexia', family: "'TB OpenDyslexic', sans-serif" },
 };
 
+/** Reader colors (also used by read-along in the player). */
+export const READER_THEMES: Record<'dark' | 'black' | 'sepia', { bg: string; fg: string; link: string; label: string }> = {
+  dark: { bg: '#0b0b10', fg: '#d2cdc0', link: '#f2b45a', label: 'Dark' },
+  black: { bg: '#000000', fg: '#9c968a', link: '#b48748', label: 'Black' },
+  sepia: { bg: '#17120b', fg: '#c7b28c', link: '#d9a55a', label: 'Sepia' },
+};
+
 export const isReaderFont = (v: unknown): v is ReaderFont => typeof v === 'string' && v in READER_FONTS;
 
 // Book pages are loaded from blob: URLs, where relative URLs don't resolve: use absolute ones.
