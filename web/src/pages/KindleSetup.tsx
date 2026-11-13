@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
-import type { BookDetail, KindleSettings } from '../api';
+import { api, EREADER_NAMES } from '../api';
+import type { BookDetail, Ereader, KindleSettings } from '../api';
 import { useAuth } from '../auth';
 import { ChevronLeftIcon } from '../components/Icons';
 import { toast } from '../components/Toast';
 
 const AMAZON_SETTINGS_URL = 'https://www.amazon.com/myk';
+const DOMAIN: Record<Ereader, string> = { kindle: 'kindle.com', pocketbook: 'pbsync.com' };
+const deviceOf = (email: string | null): Ereader | null =>
+  email?.endsWith('@pbsync.com') ? 'pocketbook' : email ? 'kindle' : null;
 
 /**
- * Step-by-step Send to Kindle setup, written for people who have never touched
- * Amazon's settings. Opened from Settings, or from a book (?book=ID) so the
- * last step can send that book right away.
+ * Step-by-step "send ebooks to my e-reader" setup (Kindle or PocketBook), written for people
+ * who have never touched their e-reader's settings. Opened from Settings, or from a book
+ * (?book=ID) so the last step can send that book right away. ?device=pocketbook preselects.
  */
 export function KindleSetup() {
   const navigate = useNavigate();
@@ -26,6 +29,8 @@ export function KindleSetup() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [device, setDevice] = useState<Ereader>(params.get('device') === 'pocketbook' ? 'pocketbook' : 'kindle');
+  const name = EREADER_NAMES[device];
 
   useEffect(() => {
     api
@@ -33,6 +38,7 @@ export function KindleSetup() {
       .then((s) => {
         setSettings(s);
         setEmail(s.email ?? '');
+        if (s.device) setDevice(s.device);
       })
       .catch((e: Error) => setError(e.message));
     if (bookId) api.book(bookId).then((r) => setBook(r.book), () => undefined);
@@ -45,12 +51,13 @@ export function KindleSetup() {
     try {
       // People often type only the first part; finish it for them.
       const typed = email.trim();
-      const full = typed && !typed.includes('@') ? `${typed}@kindle.com` : typed;
+      const full = typed && !typed.includes('@') ? `${typed}@${DOMAIN[device]}` : typed;
       const r = await api.setKindleEmail(full);
-      setSettings((s) => (s ? { ...s, email: r.email } : s));
+      setSettings((s) => (s ? { ...s, email: r.email, device: r.device } : s));
       setEmail(r.email ?? '');
       setEditing(false);
-      toast(r.email ? 'Kindle address saved' : 'Kindle address removed');
+      if (r.device) setDevice(r.device);
+      toast(r.email ? `${EREADER_NAMES[r.device ?? device]} address saved` : 'Address removed');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -63,7 +70,7 @@ export function KindleSetup() {
     setSending(true);
     try {
       await api.sendToKindle(book.id);
-      toast('Sent! It should appear on your Kindle in a few minutes.');
+      toast(`Sent! It should appear on your ${name} in a few minutes.`);
       navigate(`/book/${book.id}`);
     } catch (err) {
       toast((err as Error).message);
@@ -90,9 +97,9 @@ export function KindleSetup() {
     return (
       <div className="page kindle-page">
         {back}
-        <h1>Send to Kindle</h1>
+        <h1>Send to e-reader</h1>
         <div className="card">
-          <p>Sending books to a Kindle isn't turned on for this TurboBooks yet.</p>
+          <p>Sending books to a Kindle or PocketBook isn't turned on for this TurboBooks yet.</p>
           {user?.isAdmin ? (
             <p className="muted small">
               You're the admin: the server needs an email account to send from. Follow <code>docs/KINDLE.md</code> (about
@@ -105,13 +112,109 @@ export function KindleSetup() {
       </div>
     );
 
-  const saved = settings.email;
+  // An address saved for the other kind of e-reader doesn't count on this tab.
+  const saved = deviceOf(settings.email) === device ? settings.email : null;
   const showForm = !saved || editing;
+
+  const addressForm = showForm ? (
+    <form className="stack" onSubmit={save}>
+      <label htmlFor="ereader-email">Your {name}'s email address</label>
+      <input
+        id="ereader-email"
+        type="email"
+        inputMode="email"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        placeholder={`yourname@${DOMAIN[device]}`}
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        required={!saved}
+      />
+      {settings.email && !saved && (
+        <p className="muted small">
+          This replaces your {EREADER_NAMES[deviceOf(settings.email)!]} address ({settings.email}). TurboBooks sends to
+          one e-reader at a time.
+        </p>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="row-actions">
+        <button className="btn btn-primary" disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {saved && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              setEditing(false);
+              setEmail(saved);
+              setError(null);
+            }}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
+  ) : (
+    <p className="saved-line">
+      Saved: <strong>{saved}</strong>{' '}
+      <button className="link-btn" onClick={() => setEditing(true)}>
+        Change
+      </button>
+    </p>
+  );
+
+  const sendNow = book && saved && (
+    <button className="btn btn-primary" onClick={send} disabled={sending}>
+      {sending ? 'Sending…' : `Send "${book.title}" now`}
+    </button>
+  );
+
+  const pickDevice = (d: Ereader) => {
+    setDevice(d);
+    setEditing(false);
+    setError(null);
+    setEmail(deviceOf(settings.email) === d ? (settings.email ?? '') : '');
+  };
 
   return (
     <div className="page kindle-page">
       {back}
-      <h1>Send to Kindle</h1>
+      <h1>Send to {name}</h1>
+      <div className="segmented ereader-pick" role="tablist" aria-label="Which e-reader?">
+        {(['kindle', 'pocketbook'] as Ereader[]).map((d) => (
+          <button
+            key={d}
+            role="tab"
+            aria-selected={device === d}
+            className={device === d ? 'active' : ''}
+            onClick={() => pickDevice(d)}
+          >
+            {EREADER_NAMES[d]}
+          </button>
+        ))}
+      </div>
+      {device === 'kindle' ? (
+        <KindleSteps sender={settings.sender!} saved={saved} addressForm={addressForm} sendNow={sendNow} />
+      ) : (
+        <PocketBookSteps sender={settings.sender!} saved={saved} addressForm={addressForm} sendNow={sendNow} />
+      )}
+    </div>
+  );
+}
+
+interface StepsProps {
+  sender: string;
+  saved: string | null;
+  addressForm: ReactNode;
+  sendNow: ReactNode;
+}
+
+function KindleSteps({ sender, saved, addressForm, sendNow }: StepsProps) {
+  return (
+    <>
       <p className="muted">
         Read TurboBooks ebooks on your Kindle. You only have to do this once, and it takes about 5 minutes. You'll need
         your Amazon password.
@@ -144,50 +247,7 @@ export function KindleSetup() {
               Shop on a different Amazon site (amazon.co.uk, amazon.ca…)? Sign in there instead; the menus are the same.
             </p>
           </details>
-
-          {showForm ? (
-            <form className="stack" onSubmit={save}>
-              <label htmlFor="kindle-email">Your Kindle's email address</label>
-              <input
-                id="kindle-email"
-                type="email"
-                inputMode="email"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="yourname@kindle.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required={!saved}
-              />
-              {error && <p className="error">{error}</p>}
-              <div className="row-actions">
-                <button className="btn btn-primary" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-                {saved && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => {
-                      setEditing(false);
-                      setEmail(saved);
-                      setError(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
-          ) : (
-            <p className="saved-line">
-              Saved: <strong>{saved}</strong>{' '}
-              <button className="link-btn" onClick={() => setEditing(true)}>
-                Change
-              </button>
-            </p>
-          )}
+          {addressForm}
         </li>
 
         <li className="card setup-step">
@@ -198,7 +258,7 @@ export function KindleSetup() {
             To stop spam, Amazon throws away emails from addresses it doesn't know. Add TurboBooks' address to your list
             of approved senders:
           </p>
-          <CopyBox text={settings.sender!} />
+          <CopyBox text={sender} />
           <ol className="sub-steps">
             <li>
               Open{' '}
@@ -226,11 +286,7 @@ export function KindleSetup() {
             Open any ebook in TurboBooks and tap <strong>Send to Kindle</strong>. Make sure your Kindle is on Wi-Fi. The
             book usually appears within a few minutes.
           </p>
-          {book && saved && (
-            <button className="btn btn-primary" onClick={send} disabled={sending}>
-              {sending ? 'Sending…' : `Send "${book.title}" now`}
-            </button>
-          )}
+          {sendNow}
           <p className="muted small">
             The first time, Amazon may email you asking you to confirm. Open that email and tap <em>Verify Request</em>.
           </p>
@@ -256,7 +312,89 @@ export function KindleSetup() {
           Good to know: your place in the book on the Kindle stays on the Kindle. It doesn't sync back to TurboBooks.
         </p>
       </div>
-    </div>
+    </>
+  );
+}
+
+function PocketBookSteps({ sender, saved, addressForm, sendNow }: StepsProps) {
+  return (
+    <>
+      <p className="muted">
+        Read TurboBooks ebooks on your PocketBook. Books arrive over Wi-Fi through PocketBook's free{' '}
+        <strong>Send-to-PocketBook</strong> service. You only have to do this once, and it takes about 5 minutes.
+      </p>
+
+      <ol className="setup-steps">
+        <li className={`card setup-step ${saved ? 'done' : ''}`}>
+          <h2>
+            <span className="step-num">{saved ? '✓' : '1'}</span> Get your PocketBook's email address
+          </h2>
+          <p>
+            Send-to-PocketBook gives your e-reader its own email address. Anything emailed there downloads to the
+            PocketBook. It looks like <strong>something@pbsync.com</strong>.
+          </p>
+          <details className="how-to">
+            <summary>Where do I find it?</summary>
+            <p>
+              <strong>On the PocketBook:</strong> connect to Wi-Fi, then open <em>Settings</em> →{' '}
+              <em>Accounts and synchronization</em> → <em>Send-to-PocketBook</em>.
+            </p>
+            <p>
+              <strong>Never used it?</strong> The same screen lets you sign up: enter your own email address, then open
+              the email PocketBook sends you and confirm. Your new @pbsync.com address then shows on that screen, and in
+              PocketBook's welcome email.
+            </p>
+            <p className="muted small">Menu names can differ slightly between PocketBook models.</p>
+          </details>
+          {addressForm}
+        </li>
+
+        <li className="card setup-step">
+          <h2>
+            <span className="step-num">2</span> Send a book, and approve TurboBooks once
+          </h2>
+          <p>
+            Open any ebook in TurboBooks and tap <strong>Send to PocketBook</strong>.
+          </p>
+          {sendNow}
+          <p>
+            The very first time, PocketBook emails <em>you</em> (the address you signed up with) to ask whether to accept
+            books from TurboBooks' address:
+          </p>
+          <CopyBox text={sender} />
+          <p>
+            Open that email and confirm. From then on, books from TurboBooks arrive without asking. If the first book
+            doesn't show up after you confirm, send it again.
+          </p>
+        </li>
+
+        <li className="card setup-step">
+          <h2>
+            <span className="step-num">3</span> Find it on the PocketBook
+          </h2>
+          <p>
+            Keep the PocketBook on Wi-Fi. New books download by themselves within a few minutes and appear in your{' '}
+            <em>Library</em>, usually in a <em>Send-to-PocketBook</em> folder.
+          </p>
+        </li>
+      </ol>
+
+      <div className="card">
+        <h2>Book didn't show up?</h2>
+        <ul className="tips">
+          <li>Wait a few minutes, then turn the PocketBook's Wi-Fi off and on so it checks for new books.</li>
+          <li>
+            Check your email (the one you signed up to Send-to-PocketBook with). PocketBook may still be waiting for you
+            to approve TurboBooks (step 2).
+          </li>
+          <li>Check step 1: the address must be your PocketBook's @pbsync.com address, not your personal email.</li>
+        </ul>
+        <p className="muted small">
+          Good to know: your place in the book on the PocketBook stays on the PocketBook. It doesn't sync back to
+          TurboBooks.
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -269,13 +407,13 @@ function CopyBox({ text }: { text: string }) {
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard blocked (e.g. plain http): select the text so a long-press copies it.
-      const el = document.getElementById('kindle-sender');
+      const el = document.getElementById('ereader-sender');
       if (el) window.getSelection()?.selectAllChildren(el);
     }
   };
   return (
     <div className="copy-box">
-      <code id="kindle-sender">{text}</code>
+      <code id="ereader-sender">{text}</code>
       <button type="button" className="btn btn-small" onClick={copy}>
         {copied ? 'Copied ✓' : 'Copy'}
       </button>

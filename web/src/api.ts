@@ -222,12 +222,21 @@ export interface Person {
   finished: Activity[];
 }
 
+export type Ereader = 'kindle' | 'pocketbook';
+
+/** Display names, for "Send to Kindle" / "Send to PocketBook". */
+export const EREADER_NAMES: Record<Ereader, string> = { kindle: 'Kindle', pocketbook: 'PocketBook' };
+
+/** Send to e-reader (Kindle or PocketBook, by email). */
 export interface KindleSettings {
   /** False until the server admin sets up outgoing email. */
   enabled: boolean;
-  /** The address users must add to Amazon's approved sender list. */
+  /** The address TurboBooks sends from (Amazon's approved sender list; PocketBook asks to confirm it). */
   sender: string | null;
+  /** The e-reader's own address (…@kindle.com or …@pbsync.com). */
   email: string | null;
+  /** Which kind of e-reader that address belongs to. */
+  device: Ereader | null;
 }
 
 export interface TtsVoice {
@@ -330,7 +339,8 @@ export const api = {
   getPrefs: () => request<{ prefs: import('./prefs').Prefs | null }>('GET', '/api/me/prefs'),
   putPrefs: (prefs: import('./prefs').Prefs) => request('PUT', '/api/me/prefs', prefs),
   kindle: () => request<KindleSettings>('GET', '/api/me/kindle'),
-  setKindleEmail: (email: string) => request<{ email: string | null }>('PUT', '/api/me/kindle', { email }),
+  setKindleEmail: (email: string) =>
+    request<{ email: string | null; device: Ereader | null }>('PUT', '/api/me/kindle', { email }),
   sendToKindle: (id: number) => request<{ ok: true; to: string }>('POST', `/api/books/${id}/send-to-kindle`, {}),
   resetProgress: (id: number) => request('DELETE', `/api/books/${id}/progress`),
   deleteBook: (id: number) => request('DELETE', `/api/books/${id}`),

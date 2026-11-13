@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { api } from '../api';
+import { api, EREADER_NAMES } from '../api';
 import type { AdminUser, KindleSettings } from '../api';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
@@ -78,18 +78,19 @@ function Kindle() {
     api.kindle().then(setKindle, () => undefined);
   }, []);
   if (!kindle) return null;
+  const device = kindle.device ? EREADER_NAMES[kindle.device] : null;
   return (
     <div className="card">
-      <h2>Kindle</h2>
+      <h2>{device ?? 'Kindle or PocketBook'}</h2>
       <p className="muted small">
         {!kindle.enabled
-          ? "Sending ebooks to a Kindle isn't turned on for this server yet."
+          ? "Sending ebooks to an e-reader isn't turned on for this server yet."
           : kindle.email
-            ? `Ebooks are sent to ${kindle.email}.`
-            : 'Send ebooks from TurboBooks straight to your Kindle. One-time setup, about 5 minutes.'}
+            ? `Ebooks are sent to your ${device ?? 'e-reader'} at ${kindle.email}.`
+            : 'Send ebooks from TurboBooks straight to your Kindle or PocketBook over Wi-Fi. One-time setup, about 5 minutes.'}
       </p>
       <Link className="btn" to="/kindle">
-        {kindle.enabled && kindle.email ? 'Kindle settings & help' : 'Set up Send to Kindle'}
+        {kindle.enabled && device ? `${device} settings & help` : 'Set up your e-reader'}
       </Link>
     </div>
   );

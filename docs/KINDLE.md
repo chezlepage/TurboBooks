@@ -1,8 +1,11 @@
-# Turning on Send to Kindle
+# Turning on Send to Kindle / PocketBook
 
-With Send to Kindle on, a **Send to Kindle** button appears on every ebook. TurboBooks emails the EPUB to the reader's Kindle address and Amazon delivers it over Wi-Fi.
+With this on, a **Send to Kindle** (or **Send to PocketBook**) button appears on every ebook. TurboBooks emails the EPUB to the reader's device address and it arrives over Wi-Fi:
 
-You set up the sending email account once, for the whole server. Each reader then follows the guided setup in the app (**Profile → Settings → Kindle**). That setup walks them through finding their Kindle address and approving the sender, with no technical steps.
+- **Kindle**: the reader's `@kindle.com` address; Amazon delivers it.
+- **PocketBook**: the reader's `@pbsync.com` address from PocketBook's free Send-to-PocketBook service. The first book from a new sender makes PocketBook email the reader to confirm it; after that, books go straight through.
+
+You set up the sending email account once, for the whole server. Each reader then follows the guided setup in the app (**Profile → Settings → Kindle or PocketBook**). It has a Kindle / PocketBook switch and walks them through finding their device address and approving the sender, with no technical steps. One e-reader per person.
 
 ## 1. Pick an email account to send from
 

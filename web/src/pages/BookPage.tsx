@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, coverUrl, formatDuration, formatTime } from '../api';
+import { api, coverUrl, EREADER_NAMES, formatDuration, formatTime } from '../api';
 import type { BookDetail, KindleSettings } from '../api';
 import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
@@ -126,13 +126,14 @@ export function BookPage() {
     navigate('/');
   };
 
+  const ereaderName = kindle?.device ? EREADER_NAMES[kindle.device] : 'e-reader';
   const sendToKindle = async () => {
     // Not set up yet: the guided setup can send this book at the end.
     if (!kindle?.email) return navigate(`/kindle?book=${book.id}`);
     setSendingToKindle(true);
     try {
       await api.sendToKindle(book.id);
-      toast('Sent! It should appear on your Kindle in a few minutes.');
+      toast(`Sent! It should appear on your ${ereaderName} in a few minutes.`);
     } catch (err) {
       toast((err as Error).message);
     } finally {
@@ -217,7 +218,7 @@ export function BookPage() {
 
             {isEbook && kindle?.enabled && (
               <button className="btn btn-lg btn-kindle" onClick={sendToKindle} disabled={sendingToKindle}>
-                {sendingToKindle ? 'Sending…' : 'Send to Kindle'}
+                {sendingToKindle ? 'Sending…' : kindle.device ? `Send to ${ereaderName}` : 'Send to e-reader'}
               </button>
             )}
 
