@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, coverUrl, EREADER_NAMES, formatDuration, formatTime } from '../api';
+import { api, coverUrl, EREADER_NAMES, formatDuration, formatTime, isComic } from '../api';
 import type { BookDetail, KindleSettings } from '../api';
 import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
@@ -69,6 +69,7 @@ export function BookPage() {
   if (!book) return <BookSkeleton />;
 
   const isEbook = book.kind === 'ebook';
+  const comic = isComic(book);
   const isCurrent = !isEbook && player.book?.id === book.id;
   const position = isCurrent ? livePosition : book.progress && !book.progress.finished ? book.progress.position : 0;
   const currentChapter = chapterAt(book, position);
@@ -142,7 +143,7 @@ export function BookPage() {
   };
 
   const chips = [
-    isEbook ? 'Ebook' : formatDuration(book.duration),
+    comic ? 'Comic / manga' : isEbook ? 'Ebook' : formatDuration(book.duration),
     !isEbook && book.chapters.length > 1 ? `${book.chapters.length} chapters` : null,
     book.narrator ? `Read by ${book.narrator}` : null,
     book.source ? SOURCE_LABELS[book.source] ?? book.source : 'Your files',
@@ -197,7 +198,7 @@ export function BookPage() {
 
           <div className="book-actions">
             {isEbook ? (
-              <button className="btn btn-primary btn-lg" onClick={() => navigate(`/read/${book.id}`)}>
+              <button className="btn btn-primary btn-lg" onClick={() => navigate(comic ? `/comic/${book.id}` : `/read/${book.id}`)}>
                 <BooksIcon size={20} /> {started ? 'Continue reading' : finished ? 'Read again' : 'Start reading'}
               </button>
             ) : isCurrent && player.playing ? (
@@ -216,7 +217,8 @@ export function BookPage() {
               </button>
             )}
 
-            {isEbook && kindle?.enabled && (
+            {/* Kindles can't take comic files by email; PocketBooks read them. */}
+            {isEbook && kindle?.enabled && (!comic || kindle.device === 'pocketbook') && (
               <button className="btn btn-lg btn-kindle" onClick={sendToKindle} disabled={sendingToKindle}>
                 {sendingToKindle ? 'Sending…' : kindle.device ? `Send to ${ereaderName}` : 'Send to e-reader'}
               </button>
@@ -276,7 +278,7 @@ export function BookPage() {
             />
           )}
 
-          {isEbook && book.inLibrary && <MakeAudiobook bookId={book.id} autoOpen={searchParams.get('audiobook') === '1'} />}
+          {isEbook && !comic && book.inLibrary && <MakeAudiobook bookId={book.id} autoOpen={searchParams.get('audiobook') === '1'} />}
 
           {description && (
             <div className="description-block">

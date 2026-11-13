@@ -186,6 +186,8 @@ function CoverSheet({
 /** Lets the user choose which download Shelfarr grabs when it couldn't pick one itself. */
 // Only names that don't double as ordinary words (no "doc", "txt", "opus": "Doc Savage", "Magnum Opus").
 const EBOOK_FORMATS = ['epub', 'pdf', 'mobi', 'azw3', 'azw', 'kfx', 'fb2', 'djvu', 'cbz', 'cbr'];
+/** What TurboBooks opens: EPUB, and CBZ/CBR comics, manga and webtoons. */
+const READABLE_EBOOK = ['epub', 'cbz', 'cbr'];
 const AUDIO_FORMATS = ['m4b', 'mp3', 'm4a', 'flac'];
 const FORMAT_RE = new RegExp(`(?:^|[^a-z0-9])(${[...EBOOK_FORMATS, ...AUDIO_FORMATS].join('|')})(?=$|[^a-z0-9])`, 'gi');
 
@@ -200,7 +202,7 @@ function releaseFormats(title: string): string[] {
 /** Will TurboBooks be able to open it? null when the title doesn't say. */
 function releaseReadable(formats: string[], bookType: string): boolean | null {
   if (!formats.length) return null;
-  return bookType === 'ebook' ? formats.includes('epub') : formats.some((f) => AUDIO_FORMATS.includes(f));
+  return bookType === 'ebook' ? formats.some((f) => READABLE_EBOOK.includes(f)) : formats.some((f) => AUDIO_FORMATS.includes(f));
 }
 
 function FormatTag({ formats, readable, bookType }: { formats: string[]; readable: boolean | null; bookType: string }) {
@@ -208,7 +210,7 @@ function FormatTag({ formats, readable, bookType }: { formats: string[]; readabl
   const label = formats.map((f) => f.toUpperCase()).join(' · ');
   if (readable) return <span className="rq-tag good">{label}</span>;
   return (
-    <span className="rq-tag bad" title={bookType === 'ebook' ? 'TurboBooks only opens EPUB ebooks (and only EPUB can go to Kindle from here)' : undefined}>
+    <span className="rq-tag bad" title={bookType === 'ebook' ? 'TurboBooks opens EPUB ebooks and CBZ/CBR comics (and only EPUB can go to Kindle from here)' : undefined}>
       {label} · won't open here
     </span>
   );

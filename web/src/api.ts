@@ -26,6 +26,8 @@ export interface Book {
   source: string | null;
   addedAt: number;
   kind: BookKind;
+  /** Ebooks: 'epub', or 'cbz'/'cbr' for comics, manga and webtoons (null for audiobooks). */
+  format?: 'epub' | 'cbz' | 'cbr' | null;
   /** In my own library (false when seen via someone's profile, or an unclaimed file for admins). */
   inLibrary: boolean;
   progress: Progress | null;
@@ -72,6 +74,17 @@ export interface ReadAlongChapter {
   start: number | null;
   paras: ReadAlongSentence[][];
 }
+
+/** A comic/manga/webtoon's pages ([width, height] each) and how it's meant to be read. */
+export interface ComicInfo {
+  version: string;
+  pages: [number, number][];
+  direction: 'ltr' | 'rtl';
+  layout: 'paged' | 'webtoon';
+}
+
+/** Comics, manga and webtoons are ebooks in .cbz/.cbr files. */
+export const isComic = (b: Pick<Book, 'format'>) => b.format === 'cbz' || b.format === 'cbr';
 
 export interface BookDetail extends Book {
   tracks: Track[];
@@ -434,6 +447,7 @@ export const api = {
   changeBookVoice: (bookId: number, part: string, voice: string, position: number) =>
     request<{ ok: true }>('PUT', `/api/books/${bookId}/voices`, { part, voice, position }),
   /** Admin: files on the server nobody has added yet. */
+  comic: (bookId: number) => request<ComicInfo>('GET', `/api/books/${bookId}/comic`),
   readAlong: (bookId: number) => request<ReadAlongStatus>('GET', `/api/books/${bookId}/readalong`),
   startReadAlong: (bookId: number) => request<ReadAlongStatus>('POST', `/api/books/${bookId}/readalong`, {}),
   readAlongChapter: (bookId: number, n: number) =>

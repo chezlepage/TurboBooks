@@ -1,0 +1,125 @@
+/* Comics, manga and webtoons. Black around the art, controls float on top. */
+.comic {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  color: #e8e4da;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.comic-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+/* Paged: one page, whole page on screen or as wide as the screen (then scroll down it). */
+.comic-pages {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: pan-y pinch-zoom;
+}
+.comic-pages img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+.comic-pages.fit-width {
+  overflow-y: auto;
+  align-items: flex-start;
+}
+.comic-pages.fit-width img {
+  width: 100%;
+  max-width: 1100px;
+  max-height: none;
+  height: auto;
+}
+.comic-end {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+/* Webtoon: one continuous strip, no gaps between images. */
+.comic-strip {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.comic-strip img {
+  display: block;
+  width: 100%;
+  max-width: 800px;
+  height: auto;
+  margin: 0 auto;
+  background: #111;
+}
+.comic-strip-end {
+  padding: 3rem 1rem calc(env(safe-area-inset-bottom) + 6rem);
+  text-align: center;
+  color: #8a857a;
+}
+
+/* Controls */
+.comic-top,
+.comic-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(10, 10, 14, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 2;
+}
+.comic-top {
+  top: 0;
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: calc(env(safe-area-inset-top) + 0.35rem) 0.9rem 0.35rem 0.4rem;
+}
+.comic-top .icon-btn {
+  color: inherit;
+}
+.comic-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.comic-count {
+  font-variant-numeric: tabular-nums;
+  color: #b9b3a6;
+  font-size: 0.9rem;
+}
+.comic-bottom {
+  bottom: 0;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem calc(env(safe-area-inset-bottom) + 0.8rem);
+}
+.comic-bottom input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.comic-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}

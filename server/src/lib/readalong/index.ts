@@ -103,7 +103,9 @@ export const foldTitle = (t: string) =>
 export function ebookFor(user: User, audioId: number): BookRow | null {
   const audio = getBook(audioId);
   if (!audio || audio.kind !== 'audio') return null;
-  const usable = (b: BookRow | undefined): b is BookRow => !!b && b.kind === 'ebook' && canAccessBook(user, b.id);
+  // Comics (.cbz/.cbr) have no text to follow.
+  const usable = (b: BookRow | undefined): b is BookRow =>
+    !!b && b.kind === 'ebook' && !/\.cb[zr]$/i.test(b.path) && canAccessBook(user, b.id);
 
   // Made here from an ebook: that one.
   const made = db

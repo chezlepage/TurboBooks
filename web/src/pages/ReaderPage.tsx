@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import ePub from 'epubjs';
 import type { Contents, Book as EpubBook, NavItem, Rendition } from 'epubjs';
-import { api, beaconProgress, ebookFileUrl } from '../api';
+import { api, beaconProgress, ebookFileUrl, isComic } from '../api';
 import type { BookDetail } from '../api';
 import { celebrateFinish } from '../components/FinishedSheet';
 import { ChevronLeftIcon, ListIcon } from '../components/Icons';
@@ -85,6 +85,11 @@ export function ReaderPage() {
       try {
         const { book } = await api.book(bookId);
         if (cancelled) return;
+        // Comics, manga and webtoons have their own reader.
+        if (isComic(book)) {
+          navigate(`/comic/${bookId}`, { replace: true });
+          return;
+        }
         if (book.kind !== 'ebook') throw new Error('This is not an ebook');
         setDetail(book);
         serverUpdatedAt.current = book.progress?.updatedAt ?? 0;

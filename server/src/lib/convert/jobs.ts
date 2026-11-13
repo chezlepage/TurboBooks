@@ -110,6 +110,7 @@ export function checkEligible(userId: number, ebookId: number): { ok: true; book
     | undefined;
   if (!book || !inLibrary(userId, ebookId)) return { ok: false, error: 'Book not found' };
   if (book.kind !== 'ebook') return { ok: false, error: 'Only ebooks can be turned into audiobooks' };
+  if (/\.cb[zr]$/i.test(book.path)) return { ok: false, error: 'Comics and manga are pictures, so they can’t be read aloud' };
   return { ok: true, book };
 }
 

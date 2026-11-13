@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
 import { db, now } from '../db.js';
+import { COMIC_EXTENSIONS, isComicPath, readComicMeta } from './comic.js';
 import { readEpubMeta } from './epub.js';
 import { AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, extractCover, probe } from './media.js';
 import { claimNewBook } from './requested.js';
@@ -11,7 +12,7 @@ import { claimNewBook } from './requested.js';
  * Library layout rules:
  *  - Every directory that directly contains audio files is one book (all its audio files, natural-sorted).
  *  - Audio files sitting directly in the library root are one book each.
- *  - Every .epub file is one ebook. A metadata.ebook.json next to it overrides its metadata.
+ *  - Every .epub file is one ebook, and so is every .cbz/.cbr (comics, manga, webtoons). A metadata.ebook.json next to it overrides its metadata.
  *  - Directories starting with "." are ignored (used for in-progress imports).
  *  - An optional metadata.json in a book directory overrides tags:
  *    { title, author, narrator, description, source, sourceId, trackTitles: string[] }
@@ -58,7 +59,7 @@ async function findCandidates(): Promise<Candidate[]> {
         const ext = path.extname(entry.name).toLowerCase();
         if (ext in AUDIO_EXTENSIONS) audio.push(full);
         else if (IMAGE_EXTENSIONS.has(ext)) images.push(full);
-        else if (ext === '.epub') out.push({ kind: 'ebook', key: full, dir, audioFiles: [], imageFiles: [] });
+        else if (ext === '.epub' || COMIC_EXTENSIONS.has(ext)) out.push({ kind: 'ebook', key: full, dir, audioFiles: [], imageFiles: [] });
       }
     }
     audio.sort((a, b) => collator.compare(path.basename(a), path.basename(b)));
@@ -218,7 +219,7 @@ export async function removeCoverFiles(bookId: number): Promise<void> {
 
 async function indexEbook(candidate: Candidate, signature: string, existingId?: number): Promise<number> {
   const file = candidate.key;
-  const meta = await readEpubMeta(file);
+  const meta = isComicPath(file) ? await readComicMeta(file) : await readEpubMeta(file);
   let override: BookMetadataFile = {};
   try {
     override = JSON.parse(await fs.readFile(path.join(candidate.dir, 'metadata.ebook.json'), 'utf8')) as BookMetadataFile;

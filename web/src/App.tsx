@@ -19,6 +19,7 @@ import { PlayerProvider } from './player/PlayerContext';
 
 // The EPUB engine is large; only load it when someone opens an ebook.
 const ReaderPage = lazy(() => import('./pages/ReaderPage').then((m) => ({ default: m.ReaderPage })));
+const ComicReader = lazy(() => import('./pages/ComicReader').then((m) => ({ default: m.ComicReader })));
 
 export function App() {
   const { user, checking } = useAuth();
@@ -35,7 +36,8 @@ export function App() {
 function Shell() {
   const location = useLocation();
   // Full-screen pages hide the tab bar and mini player.
-  const onPlayer = location.pathname === '/player' || location.pathname.startsWith('/read/');
+  const onPlayer =
+    location.pathname === '/player' || location.pathname.startsWith('/read/') || location.pathname.startsWith('/comic/');
   return (
     <div className={`app ${onPlayer ? 'app-player' : ''}`}>
       <main>
@@ -48,6 +50,14 @@ function Shell() {
             element={
               <Suspense fallback={<div className="splash" />}>
                 <ReaderPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/comic/:id"
+            element={
+              <Suspense fallback={<div className="splash" />}>
+                <ComicReader />
               </Suspense>
             }
           />

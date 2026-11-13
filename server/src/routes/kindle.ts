@@ -4,6 +4,7 @@
  * The address lives in users.kindle_email whatever the device; the domain says which it is.
  */
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
@@ -97,6 +98,11 @@ export async function kindleRoutes(app: FastifyInstance) {
         | { title: string; path: string }
         | undefined;
       if (!book) return reply.code(404).send({ error: 'Ebook not found' });
+      const comic = /\.cb[zr]$/i.test(book.path);
+      // PocketBook reads CBZ/CBR itself; Amazon's email service doesn't take them.
+      if (comic && deviceOf(to) !== 'pocketbook') {
+        return reply.code(400).send({ error: "Kindles can't receive comic files by email. A PocketBook can." });
+      }
 
       const size = (await fs.stat(book.path).catch(() => null))?.size;
       if (size === undefined) return reply.code(404).send({ error: 'The ebook file is missing' });
@@ -108,7 +114,11 @@ export async function kindleRoutes(app: FastifyInstance) {
           to,
           subject: book.title,
           text: `"${book.title}", sent from TurboBooks.`,
-          attachments: [{ filename: fileName(book.title), path: book.path, contentType: 'application/epub+zip' }],
+          attachments: [
+            comic
+              ? { filename: fileName(book.title).replace(/\.epub$/, path.extname(book.path).toLowerCase()), path: book.path, contentType: 'application/octet-stream' }
+              : { filename: fileName(book.title), path: book.path, contentType: 'application/epub+zip' },
+          ],
         });
         // Logged (not just errors) so "did it actually send?" can be answered from the server logs.
         console.log(

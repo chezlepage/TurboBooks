@@ -23,6 +23,7 @@ const progressBody = z.object({
 
 interface BookRow {
   id: number;
+  path: string;
   title: string;
   author: string | null;
   narrator: string | null;
@@ -50,6 +51,8 @@ const toBook = (b: BookRow) => ({
   source: b.source,
   addedAt: b.added_at,
   kind: b.kind,
+  /** Ebooks: 'epub', or 'cbz'/'cbr' for comics, manga and webtoons. */
+  format: b.kind === 'ebook' ? (/\.cb[zr]$/i.test(b.path) ? (b.path.slice(-3).toLowerCase() as 'cbz' | 'cbr') : 'epub') : null,
   /** In the current user's own library (vs. seen via someone's profile, or unclaimed). */
   inLibrary: b.in_library === 1,
   progress:
@@ -60,7 +63,7 @@ const toBook = (b: BookRow) => ({
 
 /** Books joined with the current user's (@uid) progress and library membership. */
 const BOOK_SELECT = `
-  SELECT b.id, b.title, b.author, b.narrator, b.description, b.duration, b.cover_path, b.source, b.added_at, b.kind,
+  SELECT b.id, b.title, b.author, b.narrator, b.description, b.duration, b.cover_path, b.source, b.added_at, b.kind, b.path,
          p.position, p.finished, p.locator, p.updated_at AS progress_updated_at,
          (le.user_id IS NOT NULL) AS in_library
   FROM books b
@@ -154,7 +157,8 @@ export async function bookRoutes(app: FastifyInstance) {
     if (!canAccessBook(request.user!, id)) return reply.code(404).send({ error: 'Ebook not found' });
     const row = db.prepare("SELECT path FROM books WHERE id = ? AND kind = 'ebook'").get(id) as { path: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'Ebook not found' });
-    return sendFileWithRange(request, reply, row.path, 'application/epub+zip');
+    const type = /\.cbz$/i.test(row.path) ? 'application/vnd.comicbook+zip' : /\.cbr$/i.test(row.path) ? 'application/vnd.comicbook-rar' : 'application/epub+zip';
+    return sendFileWithRange(request, reply, row.path, type);
   });
 
   app.get('/api/tracks/:id/stream', async (request, reply) => {
