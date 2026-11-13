@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import { config } from '../../config.js';
+import { db } from '../../db.js';
 import type { CastMember, ChapterNotes, SegChapter } from './annotate.js';
 
 export const SAMPLE_RATE = 24_000;
@@ -16,9 +17,38 @@ export interface Voice {
   accent: string;
   gender: 'female' | 'male';
   featured: boolean;
-  /** voice: one of Kokoro's English voices; mix: two of them blended; accent: a voice from another language reading English. */
-  kind: 'voice' | 'mix' | 'accent';
+  /**
+   * voice: one of Kokoro's English voices; mix: two of them blended; accent: a voice from another
+   * language reading English; custom: mixed by someone here (see custom_voices).
+   */
+  kind: 'voice' | 'mix' | 'accent' | 'custom';
+  /** Custom voices: who made it, and the recipe. */
+  owner?: { id: number; name: string };
+  parts?: MixPart[];
+  speed?: number;
 }
+
+/** One ingredient of a custom voice: a Kokoro voice and its share (1-9). */
+export interface MixPart {
+  voice: string;
+  weight: number;
+}
+
+interface CustomVoiceRow {
+  id: number;
+  user_id: number;
+  username: string;
+  name: string;
+  gender: 'female' | 'male';
+  parts: string;
+  speed: number;
+  deleted_at: number | null;
+}
+const CUSTOM_ID = /^cv_(\d+)$/;
+const customVoiceRow = (id: number) =>
+  db
+    .prepare('SELECT c.*, u.username FROM custom_voices c JOIN users u ON u.id = c.user_id WHERE c.id = ?')
+    .get(id) as CustomVoiceRow | undefined;
 
 const FEATURED = new Set(['af_heart', 'af_bella', 'af_nicole', 'bf_emma', 'am_michael', 'am_fenrir', 'bm_george', 'bm_fable']);
 const NICE_NAMES: Record<string, string> = { af_heart: 'Heart', af_nicole: 'Nicole (soft)', bm_fable: 'Fable' };
@@ -62,8 +92,28 @@ const ACCENTS: Record<string, string> = {
 };
 const ACCENT_ID = /^([efiph])([fm])_(?!santa)[a-z]+$/;
 
+export interface KokoroVoice {
+  voice: string;
+  langCode?: string;
+  speed?: number;
+}
+
+/** A recipe → what Kokoro takes: "af_bella(3)+bf_emma(1)", read with the first voice's English (else US). */
+export function recipeVoice(parts: MixPart[], speed = 1): KokoroVoice {
+  const voice = parts.length === 1 ? parts[0].voice : parts.map((p) => `${p.voice}(${p.weight})`).join('+');
+  const first = parts[0].voice[0];
+  return { voice, langCode: first === 'b' ? 'b' : 'a', speed };
+}
+
 /** Our voice id → the voice string Kokoro takes, and the language rules to read the text with. */
-export function kokoroVoice(id: string): { voice: string; langCode?: string } {
+export function kokoroVoice(id: string): KokoroVoice {
+  const custom = CUSTOM_ID.exec(id);
+  if (custom) {
+    // Deleted ones still resolve: books made with them must keep re-recording the same way.
+    const row = customVoiceRow(Number(custom[1]));
+    if (!row) throw new Error(`Custom voice ${id} no longer exists`);
+    return recipeVoice(JSON.parse(row.parts) as MixPart[], row.speed);
+  }
   const mix = MIX_ID.exec(id);
   if (mix) return { voice: `${mix[1]}_${mix[2]}+${mix[1]}_${mix[3]}` };
   if (ACCENT_ID.test(id)) return { voice: id, langCode: 'a' };
@@ -73,7 +123,41 @@ export function kokoroVoice(id: string): { voice: string; langCode?: string } {
 const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const nameOf = (id: string) =>
   NICE_NAMES[id]?.replace(/ \(.*\)$/, '') ?? titleCase(id.split('_').slice(1).filter((p) => p !== 'inno').join(' '));
-const KIND_ORDER = { voice: 0, mix: 1, accent: 2 };
+const KIND_ORDER = { voice: 0, mix: 1, accent: 2, custom: 3 };
+
+/** The accent with the biggest share of the mix: "US", "UK", "French accent"…; "US + UK" when those two tie. */
+function recipeAccent(parts: MixPart[]): string {
+  const share = new Map<string, number>();
+  for (const p of parts) {
+    const a = ACCENT_ID.test(p.voice) ? ACCENTS[p.voice[0]] : p.voice.startsWith('b') ? 'UK' : 'US';
+    share.set(a, (share.get(a) ?? 0) + p.weight);
+  }
+  const ranked = [...share].sort((x, y) => y[1] - x[1]);
+  if (ranked.length > 1 && ranked[0][1] === ranked[1][1] && ['US', 'UK'].includes(ranked[0][0]) && ['US', 'UK'].includes(ranked[1][0])) return 'US + UK';
+  return ranked[0][0];
+}
+
+/** Voices people here have mixed (not deleted). */
+function customVoices(): Voice[] {
+  return (
+    db
+      .prepare('SELECT c.*, u.username FROM custom_voices c JOIN users u ON u.id = c.user_id WHERE c.deleted_at IS NULL ORDER BY c.name COLLATE NOCASE')
+      .all() as CustomVoiceRow[]
+  ).map((r) => {
+    const parts = JSON.parse(r.parts) as MixPart[];
+    return {
+      id: `cv_${r.id}`,
+      label: r.name,
+      accent: recipeAccent(parts),
+      gender: r.gender,
+      featured: false,
+      kind: 'custom' as const,
+      owner: { id: r.user_id, name: r.username },
+      parts,
+      speed: r.speed,
+    };
+  });
+}
 
 /** Voices Kokoro offers, labelled for people: English voices, blends of them, and accents. Older "v0" duplicates are left out. */
 export function describeVoices(ids: string[]): Voice[] {
@@ -117,18 +201,23 @@ export function describeVoices(ids: string[]): Voice[] {
 
 let voiceCache: { at: number; voices: Voice[] } | null = null;
 
+/** Kokoro's voices (cached 10 minutes) plus the ones people here have mixed (always fresh). */
 export async function listVoices(): Promise<Voice[]> {
-  if (voiceCache && Date.now() - voiceCache.at < 10 * 60_000) return voiceCache.voices;
-  const res = await fetch(`${config.kokoroUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`Kokoro returned ${res.status}`);
-  const body = (await res.json()) as { voices: (string | { id: string })[] };
-  const voices = describeVoices(body.voices.map((v) => (typeof v === 'string' ? v : v.id)));
-  voiceCache = { at: Date.now(), voices };
-  return voices;
+  if (!voiceCache || Date.now() - voiceCache.at > 10 * 60_000) {
+    const res = await fetch(`${config.kokoroUrl}/v1/audio/voices`, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Kokoro returned ${res.status}`);
+    const body = (await res.json()) as { voices: (string | { id: string })[] };
+    voiceCache = { at: Date.now(), voices: describeVoices(body.voices.map((v) => (typeof v === 'string' ? v : v.id))) };
+  }
+  return [...voiceCache.voices, ...customVoices()];
 }
 
 export async function speak(text: string, voice: string, format: 'pcm' | 'mp3' = 'pcm'): Promise<Buffer> {
-  const k = kokoroVoice(voice);
+  return speakWith(text, kokoroVoice(voice), format);
+}
+
+/** Speaks with a resolved Kokoro voice (also used to preview a mix before it's saved). */
+export async function speakWith(text: string, k: KokoroVoice, format: 'pcm' | 'mp3' = 'pcm'): Promise<Buffer> {
   for (let attempt = 1; ; attempt++) {
     try {
       const res = await fetch(`${config.kokoroUrl}/v1/audio/speech`, {
@@ -140,7 +229,7 @@ export async function speak(text: string, voice: string, format: 'pcm' | 'mp3' =
           voice: k.voice,
           ...(k.langCode ? { lang_code: k.langCode } : {}),
           response_format: format,
-          speed: 1.0,
+          speed: k.speed ?? 1.0,
         }),
         signal: AbortSignal.timeout(120_000),
       });
@@ -212,9 +301,9 @@ function applyVoiceList(candidates: Voice[], all: Voice[], list?: VoiceList): Vo
  */
 export function castVoices(cast: CastMember[], narrator: string, voices: Voice[], list?: VoiceList): Map<string, string> {
   const accent = narrator.startsWith('b') ? 'UK' : 'US';
-  // Accented voices are only ever picked by hand (or from the listener's preferred list).
+  // Accented and custom voices are only ever picked by hand (or from the listener's preferred list).
   const usable = applyVoiceList(
-    voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id) && v.kind !== 'accent'),
+    voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id) && v.kind !== 'accent' && v.kind !== 'custom'),
     voices.filter((v) => v.id !== narrator),
     list,
   );
@@ -229,7 +318,7 @@ export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]
     ...of(gender, 'voice', false),
     ...of(gender, 'mix', false),
     // Only here when the listener preferred them.
-    ...usable.filter((v) => v.gender === gender && v.kind === 'accent').map((v) => v.id),
+    ...usable.filter((v) => v.gender === gender && (v.kind === 'accent' || v.kind === 'custom')).map((v) => v.id),
   ];
   const female = pool('female');
   const male = pool('male');

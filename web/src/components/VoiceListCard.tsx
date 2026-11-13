@@ -3,6 +3,7 @@ import { api } from '../api';
 import type { TtsVoice } from '../api';
 import { usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
+import { VoiceMixer } from './VoiceMixer';
 import { VoiceSelect, voiceDescription, useVoicePreview } from './VoicePick';
 
 const MODES: { mode: Prefs['voiceListMode']; label: string }[] = [
@@ -32,6 +33,11 @@ export function VoiceListCard() {
       live = false;
     };
   }, []);
+  const reload = () =>
+    api
+      .ttsVoices()
+      .then((r) => setVoices(r.voices))
+      .catch(() => undefined);
 
   if (!voices) return null;
 
@@ -61,6 +67,8 @@ export function VoiceListCard() {
         preview={preview}
         label="Default narrator"
       />
+
+      <VoiceMixer voices={voices} preview={preview} onChanged={reload} />
 
       <h3 className="voice-list-group">Character voices</h3>
       <div className="segmented" role="radiogroup" aria-label="Voice list">
@@ -96,7 +104,7 @@ export function VoiceListCard() {
                         <input type="checkbox" checked={chosen.has(v.id)} onChange={() => toggle(v.id)} />
                         <span className="voice-name">{v.label}</span>
                         <span className="muted small">
-                          {v.kind === 'mix' ? `${v.accent} · mixed` : v.accent}
+                          {v.kind === 'mix' ? `${v.accent} · mixed` : v.kind === 'custom' ? `${v.accent} · by ${v.mine ? 'you' : v.owner?.name}` : v.accent}
                         </span>
                         <button
                           type="button"

@@ -19,7 +19,8 @@ import {
   startConversion,
 } from '../lib/convert/jobs.js';
 import type { ConversionRow } from '../lib/convert/jobs.js';
-import { listVoices, speak } from '../lib/convert/tts.js';
+import { listVoices, recipeVoice, speak, speakWith } from '../lib/convert/tts.js';
+import type { MixPart, Voice } from '../lib/convert/tts.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const voiceParam = z.object({ voice: z.string().regex(/^[a-z]{2}_[a-z0-9_]{1,40}$/) });
@@ -30,6 +31,30 @@ const startBody = z.object({
 });
 const changeBody = z.object({ part: z.string().max(200), voice: z.string().max(60), position: z.number().min(0).default(0) });
 const picksBody = z.object({ voices: z.record(z.string().max(200), z.string().max(60)) });
+/** A voice recipe: 1-3 different Kokoro voices with shares 1-9, read a little slower or faster. */
+const recipeBody = z.object({
+  parts: z
+    .array(z.object({ voice: z.string().regex(/^[a-z]{2}_[a-z]{1,30}$/), weight: z.number().int().min(1).max(9) }))
+    .min(1)
+    .max(3)
+    .refine((ps) => new Set(ps.map((p) => p.voice)).size === ps.length, 'Each voice can only be used once'),
+  speed: z.number().min(0.8).max(1.25).transform((n) => Math.round(n * 20) / 20),
+});
+const customBody = recipeBody.extend({
+  name: z.string().trim().min(1).max(40),
+  gender: z.enum(['female', 'male']),
+});
+const MAX_CUSTOM_PER_USER = 40;
+
+/** Recipes may only use Kokoro's own voices (not blends or other custom voices). */
+async function checkParts(parts: MixPart[]): Promise<string | null> {
+  const base = new Map((await listVoices()).filter((v) => v.kind === 'voice' || v.kind === 'accent').map((v) => [v.id, v]));
+  const bad = parts.find((p) => !base.has(p.voice));
+  return bad ? `Unknown voice: ${bad.voice}` : null;
+}
+
+const forClient = (v: Voice, userId: number, isAdmin: boolean) =>
+  v.kind === 'custom' ? { ...v, mine: v.owner?.id === userId, canDelete: v.owner?.id === userId || isAdmin } : v;
 
 /** Short original line used to preview voices. */
 const SAMPLE_TEXT =
@@ -67,9 +92,9 @@ export async function convertRoutes(app: FastifyInstance) {
     return { enabled: true, monthSpend: Math.round(monthSpend() * 100) / 100, budget: config.convertMonthlyBudgetUsd };
   });
 
-  app.get('/api/convert/voices', async (_request, reply) => {
+  app.get('/api/convert/voices', async (request, reply) => {
     try {
-      return { voices: await listVoices() };
+      return { voices: (await listVoices()).map((v) => forClient(v, request.user!.id, request.user!.isAdmin)) };
     } catch {
       return reply.code(503).send({ error: 'The voice engine is not reachable' });
     }
@@ -89,6 +114,46 @@ export async function convertRoutes(app: FastifyInstance) {
       await fs.writeFile(file, audio);
     }
     return reply.header('Content-Type', 'audio/mpeg').header('Cache-Control', 'private, max-age=86400').send(audio);
+  });
+
+  /** Hear a mix before saving it. Not cached; rate-limited (it uses the shared GPU). */
+  app.post('/api/convert/voices/preview', { config: { rateLimit: { max: 60, timeWindow: '1 hour' } } }, async (request, reply) => {
+    const body = recipeBody.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Invalid mix' });
+    const bad = await checkParts(body.data.parts).catch(() => 'The voice engine is not reachable');
+    if (bad) return reply.code(400).send({ error: bad });
+    const audio = await speakWith(SAMPLE_TEXT, recipeVoice(body.data.parts, body.data.speed), 'mp3');
+    return reply.header('Content-Type', 'audio/mpeg').header('Cache-Control', 'no-store').send(audio);
+  });
+
+  /** Save a mix as a voice everyone here can pick. Its recipe never changes afterwards. */
+  app.post('/api/convert/custom-voices', { config: { rateLimit: { max: 30, timeWindow: '1 hour' } } }, async (request, reply) => {
+    const body = customBody.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: body.error.issues[0]?.message ?? 'Invalid voice' });
+    const bad = await checkParts(body.data.parts).catch(() => 'The voice engine is not reachable');
+    if (bad) return reply.code(400).send({ error: bad });
+    const count = (
+      db.prepare('SELECT COUNT(*) AS n FROM custom_voices WHERE user_id = ? AND deleted_at IS NULL').get(request.user!.id) as { n: number }
+    ).n;
+    if (count >= MAX_CUSTOM_PER_USER) return reply.code(400).send({ error: `You can keep up to ${MAX_CUSTOM_PER_USER} voices. Delete one first.` });
+    const { lastInsertRowid } = db
+      .prepare('INSERT INTO custom_voices (user_id, name, gender, parts, speed, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(request.user!.id, body.data.name, body.data.gender, JSON.stringify(body.data.parts), body.data.speed, Date.now());
+    const voice = (await listVoices()).find((v) => v.id === `cv_${lastInsertRowid}`)!;
+    return { voice: forClient(voice, request.user!.id, request.user!.isAdmin) };
+  });
+
+  /**
+   * Hide a mixed voice from the pickers (its maker or an admin). Books that already use it keep
+   * it, including when a chapter is re-recorded.
+   */
+  app.delete('/api/convert/custom-voices/:id', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const row = db.prepare('SELECT user_id FROM custom_voices WHERE id = ? AND deleted_at IS NULL').get(id) as { user_id: number } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Voice not found' });
+    if (row.user_id !== request.user!.id && !request.user!.isAdmin) return reply.code(403).send({ error: 'Only whoever made this voice can delete it' });
+    db.prepare('UPDATE custom_voices SET deleted_at = ? WHERE id = ?').run(Date.now(), id);
+    return { ok: true };
   });
 
   app.post('/api/books/:id/convert/estimate', async (request, reply) => {

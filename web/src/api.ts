@@ -273,8 +273,24 @@ export interface TtsVoice {
   accent: string;
   gender: 'female' | 'male';
   featured: boolean;
-  /** voice: a Kokoro voice; mix: two blended; accent: another language's voice reading English. */
-  kind: 'voice' | 'mix' | 'accent';
+  /** voice: a Kokoro voice; mix: two blended; accent: another language's voice reading English; custom: mixed by someone here. */
+  kind: 'voice' | 'mix' | 'accent' | 'custom';
+  /** Custom voices only. */
+  owner?: { id: number; name: string };
+  parts?: MixPart[];
+  speed?: number;
+  mine?: boolean;
+  canDelete?: boolean;
+}
+
+/** One ingredient of a mixed voice: a Kokoro voice and its share (1-9). */
+export interface MixPart {
+  voice: string;
+  weight: number;
+}
+export interface MixRecipe {
+  parts: MixPart[];
+  speed: number;
 }
 
 export interface Conversion {
@@ -390,6 +406,20 @@ export const api = {
   convertStatus: () =>
     request<{ enabled: boolean; reason?: string; monthSpend?: number; budget?: number }>('GET', '/api/convert/status'),
   ttsVoices: () => request<{ voices: TtsVoice[] }>('GET', '/api/convert/voices'),
+  /** A few seconds of an unsaved mix, as an MP3 blob. */
+  previewMix: async (recipe: MixRecipe): Promise<Blob> => {
+    const res = await fetch('/api/convert/voices/preview', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recipe),
+    });
+    if (!res.ok) throw new ApiError(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `Request failed (${res.status})`, res.status);
+    return res.blob();
+  },
+  createCustomVoice: (voice: MixRecipe & { name: string; gender: 'female' | 'male' }) =>
+    request<{ voice: TtsVoice }>('POST', '/api/convert/custom-voices', voice),
+  deleteCustomVoice: (id: string) => request<{ ok: true }>('DELETE', `/api/convert/custom-voices/${id.replace(/^cv_/, '')}`),
   convertEstimate: (bookId: number, multiVoice: boolean) =>
     request<{ estimate: ConvertEstimate }>('POST', `/api/books/${bookId}/convert/estimate`, { multiVoice }),
   startConversion: (bookId: number, voice: string, multiVoice: boolean, voiceMode: VoiceMode = 'auto') =>

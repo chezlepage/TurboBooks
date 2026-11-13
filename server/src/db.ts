@@ -232,6 +232,20 @@ const migrations: string[] = [
   `
   ALTER TABLE request_owners ADD COLUMN make_audiobook INTEGER NOT NULL DEFAULT 0;
   `,
+  // v14: voices people mix themselves (weighted blend of up to 3 Kokoro voices, plus speed).
+  // A recipe never changes once saved (books keep sounding the same); deleting only hides it.
+  `
+  CREATE TABLE custom_voices (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    gender     TEXT NOT NULL,
+    parts      TEXT NOT NULL,
+    speed      REAL NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    deleted_at INTEGER
+  );
+  `,
 ];
 
 const current = db.pragma('user_version', { simple: true }) as number;

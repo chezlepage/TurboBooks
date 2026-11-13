@@ -40,7 +40,8 @@ export function useVoicePreview() {
   return { playing, toggle };
 }
 
-export const voiceDescription = (v: TtsVoice) => `${v.label} · ${v.gender === 'female' ? 'Female' : 'Male'} · ${v.accent}`;
+export const voiceDescription = (v: TtsVoice) =>
+  `${v.label} · ${v.gender === 'female' ? 'Female' : 'Male'} · ${v.accent}${v.owner ? ` · by ${v.mine ? 'you' : v.owner.name}` : ''}`;
 
 /** Compact voice choice: a dropdown (featured voices first) plus a preview button. */
 export function VoiceSelect({
@@ -63,6 +64,7 @@ export function VoiceSelect({
     ['More voices', voices.filter((v) => !v.featured && v.kind === 'voice')],
     ['Mixed voices (two blended)', voices.filter((v) => !v.featured && v.kind === 'mix')],
     ['Accents', voices.filter((v) => !v.featured && v.kind === 'accent')],
+    ['Mixed here', voices.filter((v) => !v.featured && v.kind === 'custom')],
   ];
   return (
     <span className="voice-select">
