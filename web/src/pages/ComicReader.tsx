@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, beaconProgress } from '../api';
@@ -10,6 +10,8 @@ import '../styles-comic.css';
 /** rtl: manga (right to left); ltr: western comics; scroll: webtoons (one long vertical strip). */
 type Mode = 'rtl' | 'ltr' | 'scroll';
 type Fit = 'screen' | 'width';
+/** Two pages side by side: always, never, or when the screen is landscape and wide (tablets, computers). */
+type Spread = 'auto' | 'one' | 'two';
 
 const MODES: { mode: Mode; label: string }[] = [
   { mode: 'rtl', label: 'Manga ←' },
@@ -20,6 +22,30 @@ const SAVE_DEBOUNCE_MS = 1200;
 
 const modeKey = (id: number) => `tb.comicMode.${id}`;
 const fitKey = 'tb.comicFit';
+const spreadKey = 'tb.comicSpread';
+const shiftKey = (id: number) => `tb.comicShift.${id}`;
+
+/** Wide enough for two pages: landscape and at least tablet-sized. */
+const isWideScreen = () => window.innerWidth > window.innerHeight && window.innerWidth >= 700;
+
+/**
+ * Pages grouped as they're shown side by side. The cover stands alone (like a printed book, so
+ * left and right pages pair up right), unless shifted for books where that comes out wrong.
+ * A page that's already a two-page scan (wider than tall) stands alone and restarts the pairing.
+ */
+export function spreads(pages: [number, number][], shift: boolean): number[][] {
+  const wide = (n: number) => pages[n][0] > pages[n][1] * 1.1;
+  const out: number[][] = [];
+  let i = 0;
+  if (!shift && pages.length) out.push([i++]);
+  while (i < pages.length) {
+    if (!wide(i) && i + 1 < pages.length && !wide(i + 1)) {
+      out.push([i, i + 1]);
+      i += 2;
+    } else out.push([i++]);
+  }
+  return out;
+}
 const readLocal = (key: string) => {
   try {
     return localStorage.getItem(key);
@@ -62,8 +88,27 @@ export function ComicReader() {
   const [fit, setFitState] = useState<Fit>(() => (readLocal(fitKey) === 'width' ? 'width' : 'screen'));
   const [chrome, setChrome] = useState(true);
   const [atEnd, setAtEnd] = useState(false);
+  const [spread, setSpreadState] = useState<Spread>(() => {
+    const v = readLocal(spreadKey);
+    return v === 'one' || v === 'two' ? v : 'auto';
+  });
+  const [shift, setShiftState] = useState(() => readLocal(shiftKey(bookId)) === '1');
+  const [wideScreen, setWideScreen] = useState(isWideScreen);
+  useEffect(() => {
+    const onResize = () => setWideScreen(isWideScreen());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const count = comic?.pages.length ?? 0;
+  const double = mode !== 'scroll' && (spread === 'two' || (spread === 'auto' && wideScreen));
+  /** What one tap shows: single pages, or spreads of two. */
+  const views = useMemo(
+    () => (!comic ? [] : double ? spreads(comic.pages, shift) : comic.pages.map((_, n) => [n])),
+    [comic, double, shift],
+  );
+  const viewOf = useCallback((n: number) => Math.max(0, views.findIndex((v) => v.includes(n))), [views]);
+  const shown = views[viewOf(page)] ?? [page];
   const pageUrl = (n: number) => `/api/books/${bookId}/comic/pages/${n}?v=${comic?.version ?? ''}`;
 
   // ---- open -------------------------------------------------------------------
@@ -92,16 +137,26 @@ export function ComicReader() {
     setFitState(f);
     writeLocal(fitKey, f);
   };
+  const setSpread = (v: Spread) => {
+    setSpreadState(v);
+    writeLocal(spreadKey, v);
+  };
+  const toggleShift = () => {
+    setShiftState(!shift);
+    writeLocal(shiftKey(bookId), shift ? '0' : '1');
+  };
 
   // ---- progress -----------------------------------------------------------------
   const pageRef = useRef(0);
+  /** The furthest page on screen (the second page of a spread). */
+  const readRef = useRef(0);
   const lastSaved = useRef<number | null>(null);
   const saveTimer = useRef<number>();
   const finishedRef = useRef(false);
   const save = useCallback(
     (beacon = false) => {
       if (!count) return;
-      const n = pageRef.current;
+      const n = readRef.current;
       const finished = finishedRef.current;
       if (n === lastSaved.current && !finished) return;
       lastSaved.current = n;
@@ -114,9 +169,10 @@ export function ComicReader() {
   useEffect(() => {
     if (!count) return;
     pageRef.current = page;
+    readRef.current = Math.max(...shown);
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => save(), SAVE_DEBOUNCE_MS);
-  }, [page, count, save]);
+  }, [page, count, save, views]);
   useEffect(() => {
     const flush = () => save(true);
     const onHide = () => document.visibilityState === 'hidden' && flush();
@@ -150,16 +206,16 @@ export function ComicReader() {
         if (delta < 0) showEnd(false);
         return;
       }
-      const next = pageRef.current + delta;
-      if (next >= count) {
+      const next = viewOf(pageRef.current) + delta;
+      if (next >= views.length) {
         finish();
         showEnd(true);
         return;
       }
-      pageRef.current = Math.max(0, next);
+      pageRef.current = views[Math.max(0, next)][0];
       setPage(pageRef.current);
     },
-    [count, finish],
+    [count, finish, views, viewOf],
   );
 
   useEffect(() => {
@@ -179,10 +235,9 @@ export function ComicReader() {
   // Load the next pages before they're needed.
   useEffect(() => {
     if (!comic || mode === 'scroll') return;
-    for (const n of [page + 1, page + 2, page - 1]) {
-      if (n >= 0 && n < count) new Image().src = pageUrl(n);
-    }
-  }, [page, comic, mode]);
+    const v = viewOf(page);
+    for (const n of [...(views[v + 1] ?? []), ...(views[v + 2] ?? []), ...(views[v - 1] ?? [])]) new Image().src = pageUrl(n);
+  }, [page, comic, mode, views]);
 
   // Taps: the outer thirds turn the page (which side is "next" depends on the direction), the middle shows controls.
   const down = useRef<{ x: number; y: number; t: number } | null>(null);
@@ -287,6 +342,13 @@ export function ComicReader() {
                 Last page
               </button>
             </div>
+          ) : shown.length === 2 ? (
+            // First page of the pair on the right for manga, on the left for comics.
+            <div className="comic-spread">
+              {shown.map((n) => (
+                <img key={n} src={pageUrl(n)} alt={`Page ${n + 1}`} draggable={false} style={fit === 'width' ? ratio(n) : undefined} />
+              ))}
+            </div>
           ) : (
             <img key={page} src={pageUrl(page)} alt={`Page ${page + 1}`} draggable={false} style={fit === 'width' ? ratio(page) : undefined} />
           )}
@@ -301,7 +363,7 @@ export function ComicReader() {
             </button>
             <span className="comic-title">{book.title}</span>
             <span className="comic-count">
-              {Math.min(page + 1, count)} / {count}
+              {shown.length === 2 ? `${shown[0] + 1}–${shown[1] + 1}` : Math.min(page + 1, count)} / {count}
             </span>
           </header>
           <footer className="comic-bottom">
@@ -323,6 +385,27 @@ export function ComicReader() {
                   </button>
                 ))}
               </div>
+              {mode !== 'scroll' && (
+                <div className="segmented" role="radiogroup" aria-label="Pages on screen">
+                  {(
+                    [
+                      ['one', '1 page'],
+                      ['two', '2 pages'],
+                      ['auto', 'Auto'],
+                    ] as [Spread, string][]
+                  ).map(([v, label]) => (
+                    <button key={v} role="radio" aria-checked={spread === v} className={spread === v ? 'active' : ''} onClick={() => setSpread(v)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {double && (
+                // Some books pair up wrong (cover missing, or a blank page): move the pairs by one.
+                <button className={`btn btn-small ${shift ? 'btn-primary' : ''}`} onClick={toggleShift} aria-pressed={shift}>
+                  Shift pairs
+                </button>
+              )}
               {mode !== 'scroll' && (
                 <div className="segmented" role="radiogroup" aria-label="Page size">
                   <button role="radio" aria-checked={fit === 'screen'} className={fit === 'screen' ? 'active' : ''} onClick={() => setFit('screen')}>
