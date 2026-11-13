@@ -85,8 +85,11 @@ export function ReaderPage() {
       try {
         const { book } = await api.book(bookId);
         if (cancelled) return;
-        // Comics, manga and webtoons have their own reader.
-        if (isComic(book)) {
+        // Comics, manga and webtoons have their own reader, and so do EPUBs that are only page
+        // images (manga sold as EPUB): the server says which those are.
+        const pictureBook = isComic(book) || (await api.comic(bookId).then(() => true, () => false));
+        if (cancelled) return;
+        if (pictureBook) {
           navigate(`/comic/${bookId}`, { replace: true });
           return;
         }

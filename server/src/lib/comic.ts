@@ -282,11 +282,100 @@ async function versionOf(file: string): Promise<string> {
   return createHash('sha1').update(`${file}|${st.size}|${st.mtimeMs}`).digest('hex').slice(0, 16);
 }
 
+// ---------------------------------------------------------------------------
+// Image-only EPUBs (manga and comics sold as EPUB): one picture per page
+// ---------------------------------------------------------------------------
+
+const xmlAttr = (tag: string, name: string) =>
+  tag.match(new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'))?.slice(2).find((v) => v !== undefined);
+const resolveIn = (base: string, href: string) => {
+  const clean = decodeURIComponent(href.split('#')[0]);
+  return path.posix.normalize(path.posix.join(path.posix.dirname(base), clean)).replace(/^\/+/, '');
+};
+
+/**
+ * The pictures of an EPUB that is really a comic (every page is just an image, as manga and
+ * comics bought as EPUB are), in reading order, and whether it reads right to left. Null for
+ * a normal text ebook: it gives up as soon as enough pages turn out to be text.
+ */
+async function imageEpubPages(file: string): Promise<{ pages: ZipEntry[]; rtl: boolean } | null> {
+  const entries = await zipEntries(file);
+  const byName = new Map(entries.map((e) => [e.name, e]));
+  const text = async (name: string, limit = 400_000) => {
+    const e = byName.get(name);
+    return e && e.size <= limit ? Buffer.from(await zipRead(file, e)).toString('utf8') : null;
+  };
+  const container = await text('META-INF/container.xml');
+  const opfPath = container?.match(/full-path\s*=\s*"([^"]+)"/)?.[1];
+  const opf = opfPath ? await text(opfPath, 2_000_000) : null;
+  if (!opfPath || !opf) return null;
+
+  const items = new Map<string, { href: string; type: string }>();
+  for (const m of opf.matchAll(/<item\b[^>]*>/gi)) {
+    const id = xmlAttr(m[0], 'id');
+    const href = xmlAttr(m[0], 'href');
+    if (id && href) items.set(id, { href: resolveIn(opfPath, href), type: xmlAttr(m[0], 'media-type') ?? '' });
+  }
+  const spineTag = opf.match(/<spine\b[^>]*>/i)?.[0] ?? '';
+  const spine = [...opf.matchAll(/<itemref\b[^>]*>/gi)].map((m) => items.get(xmlAttr(m[0], 'idref') ?? '')).filter((i) => !!i);
+  if (spine.length < 8 || spine.length > MAX_PAGES) return null;
+
+  const pages: ZipEntry[] = [];
+  let textPages = 0;
+  for (let i = 0; i < spine.length; i++) {
+    const item = spine[i]!;
+    if (item.type.startsWith('image/')) {
+      const e = byName.get(item.href);
+      if (e) pages.push(e);
+      continue;
+    }
+    const html = await text(item.href);
+    const body = html?.match(/<body[\s\S]*?>([\s\S]*)<\/body>/i)?.[1] ?? html ?? '';
+    const words = body.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, '');
+    const images = [...body.matchAll(/<(?:img|image)\b[^>]*>/gi)]
+      .map((m) => xmlAttr(m[0], 'src') ?? xmlAttr(m[0], 'xlink:href') ?? xmlAttr(m[0], 'href'))
+      .filter((h): h is string => !!h)
+      .map((h) => byName.get(resolveIn(item.href, h)))
+      .filter((e): e is ZipEntry => !!e && isPageName(e.name));
+    // A page with pictures and (almost) no words is a comic page; captions and page numbers are fine.
+    if (images.length && words.length < 60) pages.push(...images);
+    else textPages++;
+    // Clearly a text book: stop reading it.
+    if (textPages > Math.max(3, spine.length * 0.2)) return null;
+  }
+  if (pages.length < spine.length * 0.8) return null;
+  return { pages: pages.filter((e, i) => e !== pages[i - 1]), rtl: /\brtl\b/i.test(xmlAttr(spineTag, 'page-progression-direction') ?? '') };
+}
+
+const imageEpubChecks = new Map<string, Promise<boolean>>();
+
+/** Whether this .epub is really a comic (image pages only); remembered per file version. */
+export async function isImageEpub(file: string): Promise<boolean> {
+  if (path.extname(file).toLowerCase() !== '.epub') return false;
+  const version = await versionOf(file);
+  let p = imageEpubChecks.get(version);
+  if (!p) {
+    p = imageEpubPages(file)
+      .then((r) => r !== null)
+      .catch(() => false);
+    imageEpubChecks.set(version, p);
+    if (imageEpubChecks.size > 500) imageEpubChecks.delete(imageEpubChecks.keys().next().value!);
+  }
+  return p;
+}
+
 async function load(file: string, version: string): Promise<Opened> {
   let read: (n: number) => Promise<Uint8Array>;
   let count: number;
   let info: ComicInfo = {};
-  if (path.extname(file).toLowerCase() === '.cbz') {
+  if (path.extname(file).toLowerCase() === '.epub') {
+    const found = await imageEpubPages(file);
+    if (!found) throw new Error('This ebook is text, not a comic');
+    if (found.pages.reduce((n, e) => n + e.size, 0) > MAX_TOTAL_BYTES) throw new Error('This comic is too big to open');
+    if (found.rtl) info = { manga: 'YesAndRightToLeft' };
+    count = found.pages.length;
+    read = (n) => zipRead(file, found.pages[n]);
+  } else if (path.extname(file).toLowerCase() === '.cbz') {
     const entries = await zipEntries(file);
     const pages = entries.filter((e) => isPageName(e.name)).sort((a, b) => collator.compare(a.name, b.name));
     if (pages.length > MAX_PAGES) throw new Error('Too many pages in this comic');

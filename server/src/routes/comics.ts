@@ -2,15 +2,17 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { requireUser } from '../lib/auth.js';
-import { comicPage, isComicPath, openComic } from '../lib/comic.js';
+import { comicPage, isComicPath, isImageEpub, openComic } from '../lib/comic.js';
 import { canAccessBook } from '../lib/library.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const pageParam = idParam.extend({ n: z.coerce.number().int().min(0).max(100_000) });
 
-const comicPath = (id: number) => {
+/** CBZ/CBR, or an EPUB made only of page images (manga and comics sold as EPUB). */
+const comicPath = async (id: number) => {
   const row = db.prepare("SELECT path FROM books WHERE id = ? AND kind = 'ebook'").get(id) as { path: string } | undefined;
-  return row && isComicPath(row.path) ? row.path : null;
+  if (!row) return null;
+  return isComicPath(row.path) || (await isImageEpub(row.path)) ? row.path : null;
 };
 
 /** Comics, manga and webtoons (.cbz/.cbr): page list, then one image per request. */
@@ -19,7 +21,7 @@ export async function comicRoutes(app: FastifyInstance) {
 
   app.get('/api/books/:id/comic', async (request, reply) => {
     const { id } = idParam.parse(request.params);
-    const file = canAccessBook(request.user!, id) ? comicPath(id) : null;
+    const file = canAccessBook(request.user!, id) ? await comicPath(id) : null;
     if (!file) return reply.code(404).send({ error: 'Comic not found' });
     try {
       const c = await openComic(file);
@@ -37,7 +39,7 @@ export async function comicRoutes(app: FastifyInstance) {
 
   app.get('/api/books/:id/comic/pages/:n', async (request, reply) => {
     const { id, n } = pageParam.parse(request.params);
-    const file = canAccessBook(request.user!, id) ? comicPath(id) : null;
+    const file = canAccessBook(request.user!, id) ? await comicPath(id) : null;
     if (!file) return reply.code(404).send({ error: 'Comic not found' });
     const page = await comicPage(file, n).catch(() => null);
     if (!page) return reply.code(404).send({ error: 'Page not found' });
