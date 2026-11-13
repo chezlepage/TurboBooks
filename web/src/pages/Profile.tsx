@@ -5,6 +5,7 @@ import type { Activity, Person, PersonStats, PersonSummary, ShelfItem } from '..
 import { Cover } from '../components/Cover';
 import { GoalCard } from '../components/GoalCard';
 import { GoodreadsImport } from '../components/GoodreadsImport';
+import { VoiceListCard } from '../components/VoiceListCard';
 import { Stars } from '../components/Stars';
 import { WantToRead } from '../components/WantToRead';
 import { ChevronLeftIcon, GearIcon } from '../components/Icons';
@@ -240,6 +241,7 @@ export function Profile() {
               )}
 
               {person.isYou && <GoodreadsImport onDone={() => void load()} />}
+              {person.isYou && <VoiceListCard />}
 
               <section>
                 <h2 className="section-title">{person.isYou ? 'On your nightstand' : 'Currently'}</h2>

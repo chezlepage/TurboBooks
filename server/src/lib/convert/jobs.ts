@@ -18,6 +18,7 @@ import { scanSingleDir } from '../scanner.js';
 import { castRequest, costUsd, estimate, labelledLines, notesRequests, parseResult, segment } from './annotate.js';
 import type { CastMember, ChapterNotes, SegChapter } from './annotate.js';
 import { extractChapters } from './epubText.js';
+import { getVoicePrefs } from '../../routes/prefs.js';
 import { castVoices, listVoices, voiceChapter } from './tts.js';
 import type { Span, Voice } from './tts.js';
 
@@ -202,7 +203,7 @@ const keptChapters = (chapters: SegChapter[], notes: Record<string, ChapterNotes
 /** Part → voice: automatic picks, overridden by anything the user chose. Null for single-voice books. */
 function partVoices(row: ConversionRow, cast: CastMember[] | null, voices: Voice[]): Map<string, string> | null {
   if (!cast || cast.length === 0) return null;
-  const map = castVoices(cast, row.voice, voices);
+  const map = castVoices(cast, row.voice, voices, getVoicePrefs(row.user_id));
   for (const [name, voice] of Object.entries(parseVoiceMap(row))) map.set(name, voice);
   return map;
 }
@@ -225,7 +226,7 @@ export async function castFor(userId: number, id: number) {
   const row = get(id);
   if (!row || row.user_id !== userId || !castReady(row)) return null;
   const cast = (await readJson<CastMember[]>(castFile(id))) ?? [];
-  const suggested = Object.fromEntries(castVoices(cast, row.voice, await listVoices()));
+  const suggested = Object.fromEntries(castVoices(cast, row.voice, await listVoices(), getVoicePrefs(row.user_id)));
   return {
     narrator: row.voice,
     cast: cast.map((c) => ({ name: c.name, gender: c.gender, age: c.age })),

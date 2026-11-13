@@ -4,7 +4,7 @@ import { api } from '../api';
 import type { Conversion, ConvertCast, ConvertEstimate, TtsVoice, VoiceMode } from '../api';
 import { usePrefs } from '../prefs';
 import { toast } from './Toast';
-import { VoiceSelect, useVoicePreview } from './VoicePick';
+import { VoiceSelect, shapeVoices, useVoicePreview } from './VoicePick';
 
 const STAGE_TEXT: Record<Conversion['status'], string> = {
   queued: 'Waiting to start',
@@ -185,7 +185,15 @@ function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose:
   useEffect(() => {
     api
       .ttsVoices()
-      .then((r) => setVoices(r.voices))
+      .then((r) => {
+        setVoices(r.voices);
+        // Start on a voice the listener's list allows.
+        const allowed = shapeVoices(r.voices, prefs);
+        if (!allowed.some((v) => v.id === prefs.ttsVoice) || (prefs.voiceListMode === 'prefer' && !allowed.find((v) => v.id === prefs.ttsVoice)?.featured)) {
+          const first = allowed.find((v) => v.featured) ?? allowed[0];
+          if (first) setVoice(first.id);
+        }
+      })
       .catch((e: Error) => setError(e.message));
   }, []);
 
@@ -212,7 +220,7 @@ function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose:
     }
   };
 
-  const shown = (voices ?? []).filter((v) => showAll || v.featured || v.id === voice);
+  const shown = shapeVoices(voices ?? [], prefs, voice).filter((v) => showAll || v.featured || v.id === voice);
   const overBudget = est ? est.monthSpend + est.costHigh > est.budget : false;
 
   return (

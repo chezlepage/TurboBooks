@@ -1,5 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TtsVoice } from '../api';
+import { usePrefs } from '../prefs';
+import type { Prefs } from '../prefs';
+
+/**
+ * The voice list as this listener wants it: with "only these" on, their preferred voices are the
+ * favourites; with "avoid these" on, avoided voices are left out (except `keep`, the current pick).
+ */
+export function shapeVoices(voices: TtsVoice[], prefs: Prefs, keep?: string): TtsVoice[] {
+  if (prefs.voiceListMode === 'prefer' && prefs.preferredVoices.length) {
+    const preferred = new Set(prefs.preferredVoices);
+    return voices.map((v) => ({ ...v, featured: preferred.has(v.id) }));
+  }
+  if (prefs.voiceListMode === 'avoid' && prefs.avoidedVoices.length) {
+    const avoided = new Set(prefs.avoidedVoices);
+    return voices.filter((v) => !avoided.has(v.id) || v.id === keep);
+  }
+  return voices;
+}
 
 /** Plays the cached sample of a voice; tapping the same voice again stops it. */
 export function useVoicePreview() {
@@ -38,6 +56,8 @@ export function VoiceSelect({
   preview: ReturnType<typeof useVoicePreview>;
   label: string;
 }) {
+  const [prefs] = usePrefs();
+  voices = shapeVoices(voices, prefs, value);
   const featured = voices.filter((v) => v.featured);
   const groups: [string, TtsVoice[]][] = [
     ['More voices', voices.filter((v) => !v.featured && v.kind === 'voice')],
@@ -47,7 +67,7 @@ export function VoiceSelect({
   return (
     <span className="voice-select">
       <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
-        <optgroup label="Favourites">
+        <optgroup label={prefs.voiceListMode === 'prefer' && prefs.preferredVoices.length ? 'Your preferred voices' : 'Favourites'}>
           {featured.map((v) => (
             <option key={v.id} value={v.id}>
               {voiceDescription(v)}

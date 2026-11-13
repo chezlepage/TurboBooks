@@ -6,6 +6,8 @@ import { requireUser } from '../lib/auth.js';
 /** How long a "you fell asleep here" mark is offered. */
 export const SLEEP_MARK_TTL_MS = 18 * 60 * 60 * 1000;
 
+const VOICE_ID = /^[a-z]{2}_[a-z0-9_]{1,40}$/;
+
 const prefsSchema = z.object({
   autoSleep: z.union([z.literal('off'), z.literal('chapter'), z.number().int().min(1).max(240)]),
   autoSleepNightOnly: z.boolean(),
@@ -24,10 +26,31 @@ const prefsSchema = z.object({
   privateByDefault: z.boolean().default(false),
   shownBooks: z.array(z.number().int().positive()).max(10000).default([]),
   /** Last narrator voice picked for ebook → audiobook (a Kokoro voice id). */
-  ttsVoice: z.string().regex(/^[a-z]{2}_[a-z0-9_]{1,40}$/).default('af_heart'),
+  ttsVoice: z.string().regex(VOICE_ID).default('af_heart'),
   /** Yearly reading goals, e.g. { "2026": 20 }. */
   readingGoals: z.record(z.string().regex(/^\d{4}$/), z.number().int().min(1).max(1000)).default({}),
+  /**
+   * Voices for audiobooks I make: 'prefer' casts only from preferredVoices (where they cover a
+   * gender), 'avoid' never uses avoidedVoices. Both lists are kept so switching mode loses nothing.
+   */
+  voiceListMode: z.enum(['off', 'prefer', 'avoid']).catch('off'),
+  preferredVoices: z.array(z.string().regex(VOICE_ID)).max(200).catch([]),
+  avoidedVoices: z.array(z.string().regex(VOICE_ID)).max(200).catch([]),
 });
+
+export interface VoicePrefs {
+  mode: 'off' | 'prefer' | 'avoid';
+  voices: Set<string>;
+}
+
+/** The voice list a user has switched on (preferred or avoided), for automatic casting. */
+export function getVoicePrefs(userId: number): VoicePrefs {
+  const row = db.prepare('SELECT data FROM user_prefs WHERE user_id = ?').get(userId) as { data: string } | undefined;
+  const parsed = row ? prefsSchema.safeParse(JSON.parse(row.data)) : null;
+  if (!parsed?.success || parsed.data.voiceListMode === 'off') return { mode: 'off', voices: new Set() };
+  const { voiceListMode: mode, preferredVoices, avoidedVoices } = parsed.data;
+  return { mode, voices: new Set(mode === 'prefer' ? preferredVoices : avoidedVoices) };
+}
 
 /** A user's goal for a year, if they set one. */
 export function getReadingGoal(userId: number, year: number): number | null {

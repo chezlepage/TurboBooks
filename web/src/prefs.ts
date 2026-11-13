@@ -26,6 +26,10 @@ export interface Prefs {
   readingGoals: Record<string, number>;
   /** Last narrator voice picked for ebook → audiobook. */
   ttsVoice: string;
+  /** Voices for audiobooks I make: only my preferred ones, or never my avoided ones. */
+  voiceListMode: 'off' | 'prefer' | 'avoid';
+  preferredVoices: string[];
+  avoidedVoices: string[];
 }
 
 const KEY = 'tb.prefs';
@@ -41,6 +45,9 @@ export const DEFAULT_PREFS: Prefs = {
   shownBooks: [],
   readingGoals: {},
   ttsVoice: 'af_heart',
+  voiceListMode: 'off',
+  preferredVoices: [],
+  avoidedVoices: [],
 };
 
 /** Is this book hidden from others on my profile? */

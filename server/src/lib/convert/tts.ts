@@ -183,11 +183,41 @@ function applyPronunciations(text: string, pron: { text: string; say: string }[]
 /** Novelty voices that shouldn't be picked automatically for characters. */
 const NOVELTY = /santa|_inno$/;
 
-/** Picks a voice for every cast member: same accent as the narrator where possible, never the narrator's own voice. */
-export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]): Map<string, string> {
+/** A listener's voice list: only these ('prefer') or never these ('avoid'). */
+export interface VoiceList {
+  mode: 'off' | 'prefer' | 'avoid';
+  voices: Set<string>;
+}
+
+/**
+ * Narrows the candidates to the listener's list, gender by gender. A gender the list leaves
+ * empty (e.g. only women preferred, but the book has men) keeps every candidate of that gender.
+ */
+function applyVoiceList(candidates: Voice[], all: Voice[], list?: VoiceList): Voice[] {
+  if (!list || list.mode === 'off' || list.voices.size === 0) return candidates;
+  return (['female', 'male'] as const).flatMap((g) => {
+    const ofGender = candidates.filter((v) => v.gender === g);
+    // Preferring a voice is asking for it: accents and novelty voices included.
+    const kept =
+      list.mode === 'prefer'
+        ? all.filter((v) => v.gender === g && list.voices.has(v.id))
+        : ofGender.filter((v) => !list.voices.has(v.id));
+    return kept.length ? kept : ofGender;
+  });
+}
+
+/**
+ * Picks a voice for every cast member: same accent as the narrator where possible, never the
+ * narrator's own voice. `list` is the listener's preferred/avoided voices, if they set one.
+ */
+export function castVoices(cast: CastMember[], narrator: string, voices: Voice[], list?: VoiceList): Map<string, string> {
   const accent = narrator.startsWith('b') ? 'UK' : 'US';
-  // Accented voices are only ever picked by hand.
-  const usable = voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id) && v.kind !== 'accent');
+  // Accented voices are only ever picked by hand (or from the listener's preferred list).
+  const usable = applyVoiceList(
+    voices.filter((v) => v.id !== narrator && !NOVELTY.test(v.id) && v.kind !== 'accent'),
+    voices.filter((v) => v.id !== narrator),
+    list,
+  );
   const of = (gender: 'female' | 'male', kind: Voice['kind'], same: boolean) =>
     usable.filter((v) => v.gender === gender && v.kind === kind && (v.accent === accent) === same).map((v) => v.id);
   // Real voices only: the "other women/men" slots below pick from the end of this list.
@@ -198,6 +228,8 @@ export function castVoices(cast: CastMember[], narrator: string, voices: Voice[]
     ...of(gender, 'mix', true),
     ...of(gender, 'voice', false),
     ...of(gender, 'mix', false),
+    // Only here when the listener preferred them.
+    ...usable.filter((v) => v.gender === gender && v.kind === 'accent').map((v) => v.id),
   ];
   const female = pool('female');
   const male = pool('male');

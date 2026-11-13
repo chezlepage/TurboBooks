@@ -174,3 +174,28 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Profile: audiobook voices to prefer / avoid. */
+.voice-list-card .section-title {
+  margin-top: 0;
+}
+.voice-list-card .segmented {
+  margin: 0.4rem 0 0.2rem;
+  flex-wrap: wrap;
+}
+.voice-list-hint {
+  margin: 0.6rem 0 0.2rem;
+}
+.voice-list-group {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.voice-list-card .voice-row input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
