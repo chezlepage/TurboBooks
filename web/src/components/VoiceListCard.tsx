@@ -3,7 +3,7 @@ import { api } from '../api';
 import type { TtsVoice } from '../api';
 import { usePrefs } from '../prefs';
 import type { Prefs } from '../prefs';
-import { voiceDescription, useVoicePreview } from './VoicePick';
+import { VoiceSelect, voiceDescription, useVoicePreview } from './VoicePick';
 
 const MODES: { mode: Prefs['voiceListMode']; label: string }[] = [
   { mode: 'off', label: 'Any voice' },
@@ -50,8 +50,19 @@ export function VoiceListCard() {
     <section className="import-card voice-list-card">
       <h2 className="section-title">Audiobook voices</h2>
       <p className="muted small">
-        Which voices to use when you make an audiobook from an ebook. Books already made keep their voices.
+        Used when you make an audiobook from an ebook. Books already made keep their voices.
       </p>
+
+      <h3 className="voice-list-group">Default narrator</h3>
+      <VoiceSelect
+        voices={voices}
+        value={prefs.ttsVoice}
+        onChange={(id) => setPrefs({ ttsVoice: id })}
+        preview={preview}
+        label="Default narrator"
+      />
+
+      <h3 className="voice-list-group">Character voices</h3>
       <div className="segmented" role="radiogroup" aria-label="Voice list">
         {MODES.map((m) => (
           <button

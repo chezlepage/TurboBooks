@@ -171,7 +171,7 @@ export function MakeAudiobook({ bookId, autoOpen = false }: { bookId: number; au
 }
 
 function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose: () => void; onStarted: (c: Conversion) => void }) {
-  const [prefs, setPrefs] = usePrefs();
+  const [prefs] = usePrefs();
   const [voices, setVoices] = useState<TtsVoice[] | null>(null);
   const [voice, setVoice] = useState(prefs.ttsVoice);
   const [showAll, setShowAll] = useState(false);
@@ -185,15 +185,7 @@ function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose:
   useEffect(() => {
     api
       .ttsVoices()
-      .then((r) => {
-        setVoices(r.voices);
-        // Start on a voice the listener's list allows.
-        const allowed = shapeVoices(r.voices, prefs);
-        if (!allowed.some((v) => v.id === prefs.ttsVoice) || (prefs.voiceListMode === 'prefer' && !allowed.find((v) => v.id === prefs.ttsVoice)?.featured)) {
-          const first = allowed.find((v) => v.featured) ?? allowed[0];
-          if (first) setVoice(first.id);
-        }
-      })
+      .then((r) => setVoices(r.voices))
       .catch((e: Error) => setError(e.message));
   }, []);
 
@@ -209,7 +201,6 @@ function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose:
     setBusy(true);
     setError(null);
     try {
-      setPrefs({ ttsVoice: voice });
       const { conversion } = await api.startConversion(bookId, voice, multiVoice, voiceMode);
       toast(conversion.status === 'done' ? 'Already made, added to your library' : 'Started. We’ll keep working on it in the background');
       onStarted(conversion);
@@ -234,6 +225,9 @@ function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose:
         </p>
 
         <h3 className="section-title">Narrator</h3>
+        <p className="muted small">
+          Starts on your default narrator (<Link to="/profile">set it on your profile</Link>). Picking another here is just for this book.
+        </p>
         {!voices && !error && <p className="muted small">Loading voices…</p>}
         <ul className="voice-list">
           {shown.map((v) => (
