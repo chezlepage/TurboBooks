@@ -46,7 +46,8 @@ services:
   # only TurboBooks talks to it. The model (~0.5 GB) downloads into ./data/whisper on first use,
   # which is why this one container also gets outbound internet; it leaves the GPU after 10 idle minutes.
   whisper:
-    image: onerahmet/openai-whisper-asr-webservice:v1.10.0-gpu
+    # v1.9.1: CUDA 12.6. v1.10 needs CUDA 12.9, newer than the host's NVIDIA driver 570 (12.8).
+    image: onerahmet/openai-whisper-asr-webservice:v1.9.1-gpu
     container_name: turbobooks-whisper
     restart: unless-stopped
     environment:
