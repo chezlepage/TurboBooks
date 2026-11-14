@@ -72,7 +72,7 @@ To install it on a phone: Safari → Share → **Add to Home Screen** (iPhone), 
   - Ebooks come from Project Gutenberg.
   - Comics come from public-domain collections.
 - **Requests**: search for a book and request it. Shelfarr, Prowlarr and qBittorrent come bundled; an admin adds the indexers from **Settings → Requests** ([docs/REQUESTS.md](docs/REQUESTS.md)). Delivered books land on the shelf of the person who asked.
-- **Make an audiobook** (optional): turn an ebook into an audiobook. Claude prepares the text and Kokoro TTS reads it.
+- **Make an audiobook** (optional, needs an NVIDIA GPU): turn an ebook into an audiobook. Claude prepares the text and Kokoro TTS reads it.
   - You get 19 blended voices and 11 accents.
   - Characters can have their own voices, and texts are read by the person who sent them.
   - Each profile can set preferred, avoided and custom-mixed voices.
@@ -93,10 +93,26 @@ Each one stays off until you fill in its settings in `.env`. `.env.example` list
 | --- | --- | --- |
 | Requests | Nothing: set up in **Settings → Requests** | Bundled Shelfarr, Prowlarr and qBittorrent ([guide](docs/REQUESTS.md)) |
 | Send to Kindle / PocketBook | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | An email account to send from, e.g. a Gmail app password ([guide](docs/KINDLE.md)) |
-| Make an audiobook | `ANTHROPIC_API_KEY`, `KOKORO_URL` | A Claude API key and an NVIDIA GPU for Kokoro |
-| Read along | `WHISPER_URL` | An NVIDIA GPU for Whisper |
+| Make an audiobook | `ANTHROPIC_API_KEY`, `KOKORO_URL` | A Claude API key and an NVIDIA GPU ([see below](#gpu)) |
+| Read along | `WHISPER_URL` | An NVIDIA GPU ([see below](#gpu)) |
 
-The Kokoro and Whisper containers are defined in `docker-compose.shared-tunnel.yml`. That file is for a host that already runs `cloudflared` in another compose project ([docs/DEPLOY.md](docs/DEPLOY.md#already-have-a-docker-host-with-cloudflared-eg-the-plex-vm)). If you use the plain `docker-compose.yml`, copy those two services into it. GPU containers need the NVIDIA Container Toolkit on the host.
+The Kokoro and Whisper containers are defined in `docker-compose.shared-tunnel.yml`. That file is for a host that already runs `cloudflared` in another compose project ([docs/DEPLOY.md](docs/DEPLOY.md#already-have-a-docker-host-with-cloudflared-eg-the-plex-vm)). If you use the plain `docker-compose.yml`, copy those two services into it.
+
+<a id="gpu"></a>
+### GPU
+
+Making audiobooks and Read along both need an **NVIDIA graphics card**. AMD, Intel and Apple GPUs won't work, and neither will CPU only.
+
+| | Minimum |
+| --- | --- |
+| Card | GeForce **GTX 900-series** (2014) or newer, up to RTX 40-series. A GTX 1650 / 1060 or better is a comfortable pick. |
+| Video memory | **4 GB**. The voices use about 1.6 GB while reading; Whisper needs some room of its own. |
+| Driver | NVIDIA **560 or newer** (CUDA 12.6) |
+| Host | Linux, or Windows with Docker Desktop (WSL 2), with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) |
+
+**RTX 50-series** cards need the newer `-cu128` build of the Kokoro image instead; see the [Kokoro-FastAPI README](https://github.com/remsky/Kokoro-FastAPI).
+
+For reference, on an RTX 3080 Ti, Kokoro reads about two minutes of audio in three seconds.
 
 ## Adding your own files
 
