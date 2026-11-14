@@ -4,6 +4,18 @@ A self-hosted audiobook player, ebook reader and comic reader, built for reading
 
 It runs in Docker on a home server and installs on phones as an app (PWA).
 
+![Library on a computer](docs/screenshots/desktop-library.png)
+
+<p>
+  <img src="docs/screenshots/phone-library.png" width="19%" alt="Library">
+  <img src="docs/screenshots/phone-player.png" width="19%" alt="Audiobook player">
+  <img src="docs/screenshots/phone-reader.png" width="19%" alt="Ebook reader">
+  <img src="docs/screenshots/phone-discover.png" width="19%" alt="Discover free books">
+  <img src="docs/screenshots/phone-profile.png" width="19%" alt="Profile and reading goal">
+</p>
+
+![Comic reader with a two-page spread](docs/screenshots/desktop-comic.png)
+
 ## Quick start
 
 You need a machine with [Docker](https://docs.docker.com/get-docker/) (Linux server, NAS, or a desktop).
