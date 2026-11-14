@@ -1,6 +1,6 @@
 # TurboBooks
 
-A self-hosted audiobook player, ebook reader and comic reader, built for reading in bed. Each person gets their own account, shelf and progress, synced across phone, tablet and computer. Free public-domain books are one tap away.
+A self-hosted audiobook player, ebook reader and comic reader, built for reading in bed. Each person gets their own account, shelf and progress, synced across phone, tablet and computer. Free public-domain books are one tap away. For anything else, there's **Requests**: search for a book, ask for it, and it lands on your shelf when it's ready. This runs through the bundled Shelfarr, Prowlarr and qBittorrent, which you set up once ([docs/REQUESTS.md](docs/REQUESTS.md)).
 
 It runs in Docker on a home server and installs on phones as an app (PWA).
 
