@@ -4,6 +4,9 @@ services:
     image: turbobooks:latest
     restart: unless-stopped
     env_file: .env
+    environment:
+      # The Shelfarr below. Requests turn on once SHELFARR_TOKEN is set in .env (docs/REQUESTS.md).
+      SHELFARR_URL: ${SHELFARR_URL:-http://shelfarr}
     volumes:
       - ./data:/data                        # SQLite DB + extracted covers (back this up)
       - ${LIBRARY_PATH:-./library}:/library # audio files
@@ -20,3 +23,59 @@ services:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - turbobooks
+
+  # ── Requests ──────────────────────────────────────────────────────────────────
+  # Shelfarr takes book requests, Prowlarr searches the indexers you add, qBittorrent downloads.
+  # All three are set up in their own web pages; docs/REQUESTS.md walks through it.
+  # Their admin pages listen on ADMIN_UI_BIND (all interfaces by default). On a server with a
+  # public IP, set ADMIN_UI_BIND=127.0.0.1 in .env and reach them over an SSH tunnel.
+
+  shelfarr:
+    image: ghcr.io/pedro-revez-silva/shelfarr:${SHELFARR_VERSION:-2026.11.09.1}
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      SOLID_QUEUE_IN_PUMA: "1"
+    volumes:
+      - ./data/shelfarr:/rails/storage                                # its database and keys
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads                     # same folder qBittorrent saves to
+      - ${LIBRARY_PATH:-./library}/Requested/Audiobooks:/audiobooks   # finished books land in the
+      - ${LIBRARY_PATH:-./library}/Requested/Ebooks:/ebooks           # TurboBooks library
+    ports:
+      - "${ADMIN_UI_BIND:-0.0.0.0}:5056:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data/prowlarr:/config
+    ports:
+      - "${ADMIN_UI_BIND:-0.0.0.0}:9696:9696"
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      WEBUI_PORT: "8090"       # 8080 is TurboBooks' port on the LAN
+      TORRENTING_PORT: "6881"
+    volumes:
+      - ./data/qbittorrent:/config
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
+    ports:
+      - "${ADMIN_UI_BIND:-0.0.0.0}:8090:8090"
+      - "6881:6881"
+      - "6881:6881/udp"

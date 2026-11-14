@@ -652,7 +652,8 @@ export function Request() {
         <div className="card">
           <p>Requests aren't set up on this server yet.</p>
           <p className="muted small">
-            An admin needs to set <code>SHELFARR_URL</code> and <code>SHELFARR_TOKEN</code> in the server's .env.
+            The server already runs Shelfarr. An admin sets it up and adds <code>SHELFARR_TOKEN</code> to
+            the server's .env. Step by step: <code>docs/REQUESTS.md</code> in the TurboBooks folder.
           </p>
         </div>
       </div>

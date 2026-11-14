@@ -38,7 +38,7 @@ Then pick how people will reach it.
 **Try it on your home network.** Open `docker-compose.yml`, uncomment the `ports:` lines under `turbobooks`, and set `COOKIE_SECURE=false` in `.env`. Then:
 
 ```sh
-docker compose up -d --build turbobooks
+docker compose up -d --build --scale cloudflared=0
 ```
 
 Open `http://<server-ip>:8080` and sign in with the admin account.
@@ -46,6 +46,8 @@ Open `http://<server-ip>:8080` and sign in with the admin account.
 **Reach it from anywhere (recommended).** Use a Cloudflare Tunnel, so no router ports are opened. Put the tunnel token in `CLOUDFLARE_TUNNEL_TOKEN` and run `docker compose up -d --build`. [docs/DEPLOY.md](docs/DEPLOY.md) walks through it step by step, including Cloudflare Access, backups and updates.
 
 After the first start, add other people under **Settings → Users** (there is no public sign-up). You can then remove `ADMIN_PASSWORD` from `.env`.
+
+The same command also starts Shelfarr, Prowlarr and qBittorrent for the **Request** tab. They sit idle until you set them up, about 10 minutes in their own web pages: [docs/REQUESTS.md](docs/REQUESTS.md).
 
 To install it on a phone: Safari → Share → **Add to Home Screen** (iPhone), or Chrome → ⋮ → **Install app** (Android).
 
@@ -69,7 +71,7 @@ To install it on a phone: Safari → Share → **Add to Home Screen** (iPhone), 
   - Audiobooks come from LibriVox.
   - Ebooks come from Project Gutenberg.
   - Comics come from public-domain collections.
-- **Requests** (optional): search for books and request them through a Shelfarr instance you run. Delivered books land on the shelf of the person who asked.
+- **Requests**: search for a book and request it. Shelfarr, Prowlarr and qBittorrent come bundled; you add the indexers and accounts ([docs/REQUESTS.md](docs/REQUESTS.md)). Delivered books land on the shelf of the person who asked.
 - **Make an audiobook** (optional): turn an ebook into an audiobook. Claude prepares the text and Kokoro TTS reads it.
   - You get 19 blended voices and 11 accents.
   - Characters can have their own voices, and texts are read by the person who sent them.
@@ -89,7 +91,7 @@ Each one stays off until you fill in its settings in `.env`. `.env.example` list
 
 | Feature | Settings | Needs |
 | --- | --- | --- |
-| Requests | `SHELFARR_URL`, `SHELFARR_TOKEN` | A Shelfarr instance with an API token |
+| Requests | `SHELFARR_TOKEN` | Bundled Shelfarr, Prowlarr and qBittorrent, set up once ([guide](docs/REQUESTS.md)) |
 | Send to Kindle / PocketBook | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | An email account to send from, e.g. a Gmail app password ([guide](docs/KINDLE.md)) |
 | Make an audiobook | `ANTHROPIC_API_KEY`, `KOKORO_URL` | A Claude API key and an NVIDIA GPU for Kokoro |
 | Read along | `WHISPER_URL` | An NVIDIA GPU for Whisper |

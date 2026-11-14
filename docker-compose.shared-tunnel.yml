@@ -6,6 +6,9 @@
 #   COMPOSE_FILE=docker-compose.shared-tunnel.yml
 #   TUNNEL_NETWORK=mediastack_default
 # then `docker compose up -d --build` as usual.
+#
+# This file does not start Shelfarr/Prowlarr/qBittorrent (docker-compose.yml does), since a host
+# like this usually runs its own. Point SHELFARR_URL and SHELFARR_TOKEN in .env at yours.
 services:
   turbobooks:
     build: .
