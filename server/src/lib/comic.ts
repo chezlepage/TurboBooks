@@ -111,6 +111,8 @@ async function zipEntries(file: string): Promise<ZipEntry[]> {
     const cdOffset = tail.readUInt32LE(eocd + 16);
     if (cdOffset === 0xffffffff || count === 0xffff) throw new Error('This comic is too big to open (zip64)');
     if (count > MAX_PAGES * 2) throw new Error('Too many files in this comic');
+    // The directory size comes from the file itself: never trust it past the file's real size.
+    if (cdSize > size || cdOffset + cdSize > size) throw new Error('This comic file is damaged');
     const cd = Buffer.alloc(cdSize);
     await fh.read(cd, 0, cdSize, cdOffset);
     const out: ZipEntry[] = [];

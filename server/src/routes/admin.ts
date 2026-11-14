@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { db, setSetting } from '../db.js';
 import { availableApps } from '../lib/apps.js';
 import { checkToken, shelfarrEnabled } from '../lib/shelfarr.js';
+import { conversionsEnabled, monthSpend, userBudget } from '../lib/convert/jobs.js';
 import { createUser, requireAdmin, requireUser, revokeSessions, setPassword } from '../lib/auth.js';
 import { isScanning, scanLibrary } from '../lib/scanner.js';
 
@@ -25,6 +26,7 @@ const resetBody = z.object({
 });
 
 const tokenBody = z.object({ token: z.string().trim().max(512) });
+const budgetBody = z.object({ usd: z.number().min(0).max(100_000) });
 
 export async function adminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireUser);
@@ -62,12 +64,34 @@ export async function adminRoutes(app: FastifyInstance) {
     return { connected: true };
   });
 
-  app.get('/api/admin/users', async () => ({
-    users: db
-      .prepare('SELECT id, username, is_admin AS isAdmin, created_at AS createdAt FROM users ORDER BY id')
-      .all()
-      .map((u) => ({ ...(u as object), isAdmin: (u as { isAdmin: number }).isAdmin === 1 })),
-  }));
+  app.get('/api/admin/users', async () => {
+    const rows = db.prepare('SELECT id, username, is_admin AS isAdmin, created_at AS createdAt FROM users ORDER BY id').all() as {
+      id: number;
+      username: string;
+      isAdmin: number;
+      createdAt: number;
+    }[];
+    const convert = conversionsEnabled();
+    return {
+      // Claude spend for making audiobooks, shown only when that's set up.
+      convertEnabled: convert,
+      users: rows.map((u) => ({
+        ...u,
+        isAdmin: u.isAdmin === 1,
+        ...(convert ? { convertBudget: userBudget(u.id), convertSpent: Math.round(monthSpend(u.id) * 100) / 100 } : {}),
+      })),
+    };
+  });
+
+  /** Someone's monthly Claude budget for making audiobooks. */
+  app.put('/api/admin/users/:id/budget', async (request, reply) => {
+    const { id } = idParam.parse(request.params);
+    const body = budgetBody.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: 'Enter an amount in dollars' });
+    const res = db.prepare('UPDATE users SET convert_budget_usd = ? WHERE id = ?').run(body.data.usd, id);
+    if (res.changes === 0) return reply.code(404).send({ error: 'User not found' });
+    return { ok: true };
+  });
 
   app.post('/api/admin/users', async (request, reply) => {
     const body = newUserBody.safeParse(request.body);

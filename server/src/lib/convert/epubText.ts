@@ -3,9 +3,12 @@
  * paragraphs. Project Gutenberg's license header/footer is cut deterministically (the
  * "*** START OF ..." / "*** END OF ..." markers), so we never pay to have it read or narrated.
  */
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8 } from 'fflate';
+import { readBookFile, unzipLimited } from '../zipSafe.js';
+
+/** Pictures, fonts and media inside an EPUB: not needed to read the text aloud, so never unpacked. */
+const NOT_TEXT = /.(jpe?g|png|gif|webp|svg|bmp|tiff?|ico|ttf|otf|woff2?|eot|mp3|m4a|aac|ogg|oga|wav|mp4|m4v|webm|pdf)$/i;
 
 export interface Chapter {
   index: number;
@@ -105,7 +108,7 @@ function splitAtAnchors(html: string, entries: TocEntry[]): { label: string | nu
 }
 
 export async function extractChapters(epubPath: string): Promise<Chapter[]> {
-  const files = unzipSync(new Uint8Array(await fs.readFile(epubPath)));
+  const files = unzipLimited(await readBookFile(epubPath), (f) => !NOT_TEXT.test(f.name));
   const container = files['META-INF/container.xml'];
   if (!container) throw new Error('Not an EPUB');
   const opfPath = strFromU8(container).match(/full-path\s*=\s*"([^"]+)"/)?.[1];

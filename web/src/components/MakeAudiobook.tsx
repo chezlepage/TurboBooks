@@ -310,14 +310,14 @@ function ConvertSheet({ bookId, onClose, onStarted }: { bookId: number; onClose:
                 </strong>
               </span>
               <span className="muted small">
-                This month: ${est.monthSpend.toFixed(2)} of ${est.budget}
+                You've used ${est.monthSpend.toFixed(2)} of your ${est.budget} this month
               </span>
             </>
           ) : (
             <span className="muted small">Working out the cost…</span>
           )}
         </div>
-        {overBudget && <p className="error small">This would go over the monthly budget.</p>}
+        {overBudget && <p className="error small">This would go over your monthly budget. An admin can raise it in Settings → Users.</p>}
         {error && <p className="error small">{error}</p>}
 
         <div className="finished-actions">

@@ -176,6 +176,9 @@ export interface AdminUser {
   username: string;
   isAdmin: boolean;
   createdAt: number;
+  /** Monthly Claude budget for making audiobooks, and spend this month (only when that's set up). */
+  convertBudget?: number;
+  convertSpent?: number;
 }
 
 export interface WishResult {
@@ -448,7 +451,8 @@ export const api = {
   bookVoices: (bookId: number, position: number) =>
     request<HeardVoices>('GET', `/api/books/${bookId}/voices?position=${Math.floor(position)}`),
   changeBookVoice: (bookId: number, part: string, voice: string, position: number) =>
-    request<{ ok: true }>('PUT', `/api/books/${bookId}/voices`, { part, voice, position }),
+    /** `bookId` is the audiobook to listen to now: your own copy, when others had the one you changed. */
+    request<{ ok: true; bookId?: number }>('PUT', `/api/books/${bookId}/voices`, { part, voice, position }),
   /** Admin: files on the server nobody has added yet. */
   comic: (bookId: number) => request<ComicInfo>('GET', `/api/books/${bookId}/comic`),
   readAlong: (bookId: number) => request<ReadAlongStatus>('GET', `/api/books/${bookId}/readalong`),
@@ -504,7 +508,8 @@ export const api = {
 
   people: () => request<{ people: PersonSummary[] }>('GET', '/api/people'),
   person: (id: number) => request<{ person: Person }>('GET', `/api/people/${id}`),
-  users: () => request<{ users: AdminUser[] }>('GET', '/api/admin/users'),
+  users: () => request<{ users: AdminUser[]; convertEnabled?: boolean }>('GET', '/api/admin/users'),
+  setUserBudget: (id: number, usd: number) => request('PUT', `/api/admin/users/${id}/budget`, { usd }),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     request('POST', '/api/admin/users', { username, password, isAdmin }),
   resetUserPassword: (id: number, password: string) => request('POST', `/api/admin/users/${id}/password`, { password }),

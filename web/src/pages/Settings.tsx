@@ -184,6 +184,20 @@ function AdminPanel() {
     }
   };
 
+  const setBudget = async (u: AdminUser) => {
+    const input = prompt(`Monthly Claude budget for making audiobooks, in dollars, for ${u.username}:`, String(u.convertBudget ?? 10));
+    if (input === null) return;
+    const usd = Number(input.replace(/[$\s]/g, ''));
+    if (!Number.isFinite(usd) || usd < 0) return setMsg({ ok: false, text: 'Enter an amount in dollars, like 25.' });
+    try {
+      await api.setUserBudget(u.id, usd);
+      setMsg({ ok: true, text: `${u.username} can now spend $${usd} a month on audiobooks.` });
+      void load();
+    } catch (err) {
+      setMsg({ ok: false, text: (err as Error).message });
+    }
+  };
+
   const remove = async (u: AdminUser) => {
     if (!confirm(`Delete user ${u.username}? Their listening progress will be lost.`)) return;
     await api.deleteUser(u.id).catch((err: Error) => setMsg({ ok: false, text: err.message }));
@@ -210,8 +224,19 @@ function AdminPanel() {
               <span>
                 {u.username}
                 {u.isAdmin && <span className="badge">admin</span>}
+                {u.convertBudget !== undefined && (
+                  <span className="muted small">
+                    {' '}
+                    · audiobooks ${u.convertSpent?.toFixed(2)} of ${u.convertBudget} this month
+                  </span>
+                )}
               </span>
               <span className="user-actions">
+                {u.convertBudget !== undefined && (
+                  <button className="btn btn-small btn-ghost" onClick={() => setBudget(u)}>
+                    Budget
+                  </button>
+                )}
                 <button className="btn btn-small btn-ghost" onClick={() => reset(u)}>
                   Reset password
                 </button>

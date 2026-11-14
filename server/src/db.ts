@@ -254,6 +254,12 @@ const migrations: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  // Per-person monthly Claude budget for making audiobooks (NULL = the server default), and each
+  // job's cost estimate, held against the budgets while it waits or runs.
+  `
+  ALTER TABLE users ADD COLUMN convert_budget_usd REAL;
+  ALTER TABLE conversions ADD COLUMN cost_reserved REAL NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function getSetting(key: string): string | null {

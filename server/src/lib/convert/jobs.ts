@@ -13,7 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../../config.js';
 import { db, now } from '../../db.js';
 import { safeName } from '../download.js';
-import { addToLibrary, inLibrary } from '../library.js';
+import { addToLibrary, inLibrary, removeFromLibrary } from '../library.js';
 import { isImageEpub } from '../comic.js';
 import { scanSingleDir } from '../scanner.js';
 import { castRequest, costUsd, estimate, labelledLines, notesRequests, parseResult, segment } from './annotate.js';
@@ -83,12 +83,30 @@ function update(id: number, fields: Partial<Pick<ConversionRow, 'status' | 'prog
 
 const get = (id: number) => db.prepare('SELECT * FROM conversions WHERE id = ?').get(id) as ConversionRow | undefined;
 
-/** What Claude has cost this calendar month across all conversions. */
-export function monthSpend(): number {
+/**
+ * Claude spend this calendar month, for one person or everyone. A job that hasn't finished counts at
+ * its estimate (or what it has really cost, if more), so queued jobs can't slip past a budget.
+ */
+export function monthSpend(userId?: number): number {
   const d = new Date();
   const from = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
-  return (db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS s FROM conversions WHERE created_at >= ?').get(from) as { s: number }).s;
+  const open = OPEN.map(() => '?').join(',');
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN status IN (${open}) THEN MAX(cost_usd, cost_reserved) ELSE cost_usd END), 0) AS s
+       FROM conversions WHERE created_at >= ?${userId === undefined ? '' : ' AND user_id = ?'}`,
+    )
+    .get(...OPEN, from, ...(userId === undefined ? [] : [userId])) as { s: number };
+  return row.s;
 }
+
+/** A person's monthly limit: what an admin set for them, else the server default. */
+export function userBudget(userId: number): number {
+  const row = db.prepare('SELECT convert_budget_usd AS b FROM users WHERE id = ?').get(userId) as { b: number | null } | undefined;
+  return row?.b ?? config.convertUserBudgetUsd;
+}
+
+const cents = (n: number) => Math.round(n * 100) / 100;
 
 // ---------------------------------------------------------------------------
 // Eligibility: any ebook in the user's own library (Discover, own files or Requests).
@@ -136,7 +154,7 @@ export async function estimateFor(userId: number, ebookId: number, multiVoice: b
   const elig = checkEligible(userId, ebookId);
   if (!elig.ok) throw Object.assign(new Error(elig.error), { statusCode: 400 });
   const { chapters, quotes } = await readBook(elig.book);
-  return { ...estimate(chapters, quotes, multiVoice), monthSpend: Math.round(monthSpend() * 100) / 100, budget: config.convertMonthlyBudgetUsd };
+  return { ...estimate(chapters, quotes, multiVoice), monthSpend: cents(monthSpend(userId)), budget: userBudget(userId) };
 }
 
 export async function startConversion(
@@ -178,18 +196,28 @@ export async function startConversion(
   if (active) return active;
 
   const est = await estimateFor(userId, ebookId, multiVoice);
+  const budget = userBudget(userId);
+  const mine = monthSpend(userId);
+  if (mine + est.costHigh > budget) {
+    throw Object.assign(
+      new Error(
+        `This book could cost up to ${est.costHigh.toFixed(2)}, and you have ${Math.max(0, budget - mine).toFixed(2)} left of your ${budget} this month. An admin can raise your limit.`,
+      ),
+      { statusCode: 400 },
+    );
+  }
   if (monthSpend() + est.costHigh > config.convertMonthlyBudgetUsd) {
     throw Object.assign(
-      new Error(`This would go over the monthly budget ($${config.convertMonthlyBudgetUsd}). Spent so far this month: $${est.monthSpend.toFixed(2)}.`),
+      new Error(`This would go over the server's monthly budget (${config.convertMonthlyBudgetUsd}). Try again next month, or ask an admin.`),
       { statusCode: 400 },
     );
   }
   const info = db
     .prepare(
-      `INSERT INTO conversions (user_id, ebook_id, title, voice, multi_voice, voice_mode, status, progress, detail, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, 'Waiting to start', ?, ?)`,
+      `INSERT INTO conversions (user_id, ebook_id, title, voice, multi_voice, voice_mode, status, progress, detail, cost_reserved, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, 'Waiting to start', ?, ?, ?)`,
     )
-    .run(userId, ebookId, elig.book.title, voice, multiVoice ? 1 : 0, mode, t, t);
+    .run(userId, ebookId, elig.book.title, voice, multiVoice ? 1 : 0, mode, est.costHigh, t, t);
   void drain();
   return get(Number(info.lastInsertRowid))!;
 }
@@ -539,10 +567,71 @@ export async function heardVoices(userId: number, audioBookId: number, position:
 }
 
 /** Changes one part's voice for everyone who has this audiobook, and re-records the chapters it speaks in. */
-export async function changeVoice(userId: number, audioBookId: number, part: string, voice: string, position: number): Promise<boolean> {
-  if (!inLibrary(userId, audioBookId)) return false;
-  const row = sourceConversion(audioBookId);
-  if (!row) return false;
+/**
+ * Changing a voice rewrites the audio files. If anyone else has this audiobook, or someone else made it,
+ * the person changing it first gets a copy of their own, so nobody's book changes under them.
+ */
+async function ownCopy(userId: number, row: ConversionRow, audioBookId: number): Promise<{ row: ConversionRow; audioBookId: number }> {
+  const othersHaveIt = !!db.prepare('SELECT 1 FROM library_entries WHERE book_id = ? AND user_id != ?').get(audioBookId, userId);
+  if (!othersHaveIt && row.user_id === userId) return { row, audioBookId };
+  if (row.status === 'revoicing') {
+    throw Object.assign(new Error('A voice in this audiobook is being changed right now. Try again when that’s done.'), { statusCode: 409 });
+  }
+  const book = db.prepare('SELECT path FROM books WHERE id = ?').get(audioBookId) as { path: string } | undefined;
+  if (!book) throw Object.assign(new Error('The audiobook is no longer in the library'), { statusCode: 404 });
+
+  const t = now();
+  const copyId = Number(
+    db
+      .prepare(
+        `INSERT INTO conversions (user_id, ebook_id, title, voice, multi_voice, voice_mode, voice_map, status, progress, detail, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'done', 1, 'Ready', ?, ?)`,
+      )
+      .run(userId, row.ebook_id, row.title, row.voice, row.multi_voice, row.voice_mode, row.voice_map, t, t).lastInsertRowid,
+  );
+  const dir = path.join(path.dirname(book.path), safeName(`${path.basename(book.path)} #${copyId}`));
+  try {
+    // The notes, cast and timing (to re-record from) and the audio itself.
+    await fs.cp(workDir(row.id), workDir(copyId), { recursive: true });
+    await fs.rm(redoFile(copyId), { force: true });
+    await fs.cp(book.path, dir, { recursive: true });
+    const metaFile = path.join(dir, 'metadata.json');
+    const meta = await readJson<Record<string, unknown>>(metaFile);
+    if (meta) {
+      // Its own id, so it's never handed out as the shared version of this ebook.
+      meta.sourceId = `${typeof meta.sourceId === 'string' ? meta.sourceId : row.ebook_id}:copy-${copyId}`;
+      await fs.writeFile(metaFile, JSON.stringify(meta, null, 2));
+    }
+    const copyBookId = await scanSingleDir(dir);
+    if (!copyBookId) throw new Error('The copy could not be added to the library');
+    db.transaction(() => {
+      // Same audio, so the same place in it: carry over where they are and their rating.
+      db.prepare(
+        `INSERT OR REPLACE INTO progress (user_id, book_id, position, finished, locator, updated_at)
+         SELECT user_id, ?, position, finished, locator, updated_at FROM progress WHERE user_id = ? AND book_id = ?`,
+      ).run(copyBookId, userId, audioBookId);
+      db.prepare(
+        `INSERT OR REPLACE INTO book_ratings (user_id, book_id, rating, note, updated_at)
+         SELECT user_id, ?, rating, note, updated_at FROM book_ratings WHERE user_id = ? AND book_id = ?`,
+      ).run(copyBookId, userId, audioBookId);
+      db.prepare('UPDATE conversions SET audio_book_id = ? WHERE id = ?').run(copyBookId, copyId);
+      addToLibrary(userId, copyBookId);
+      removeFromLibrary(userId, audioBookId);
+    })();
+    return { row: get(copyId)!, audioBookId: copyBookId };
+  } catch (err) {
+    db.prepare('DELETE FROM conversions WHERE id = ?').run(copyId);
+    await fs.rm(workDir(copyId), { recursive: true, force: true });
+    if (!db.prepare('SELECT 1 FROM books WHERE path = ?').get(dir)) await fs.rm(dir, { recursive: true, force: true });
+    throw err;
+  }
+}
+
+/** Returns the audiobook the listener should now be on (their own copy, if one was made), or null. */
+export async function changeVoice(userId: number, audioBookId: number, part: string, voice: string, position: number): Promise<{ bookId: number } | null> {
+  if (!inLibrary(userId, audioBookId)) return null;
+  let row = sourceConversion(audioBookId);
+  if (!row) return null;
   const voices = await listVoices();
   if (!voices.some((v) => v.id === voice)) throw Object.assign(new Error('Unknown voice'), { statusCode: 400 });
   const cast = row.multi_voice ? ((await readJson<CastMember[]>(castFile(row.id))) ?? []) : [];
@@ -554,8 +643,9 @@ export async function changeVoice(userId: number, audioBookId: number, part: str
   const frozen: Record<string, string> = {};
   for (const [name, v] of map ?? []) if (name !== 'narrator') frozen[name] = v;
   const narrator = part === 'narrator' ? voice : row.voice;
-  if (part === 'narrator' ? voice === row.voice : map?.get(part) === voice) return true;
+  if (part === 'narrator' ? voice === row.voice : map?.get(part) === voice) return { bookId: audioBookId };
   if (part !== 'narrator') frozen[part] = voice;
+  ({ row, audioBookId } = await ownCopy(userId, row, audioBookId));
   db.prepare('UPDATE conversions SET voice = ?, voice_map = ?, updated_at = ? WHERE id = ?').run(narrator, JSON.stringify(frozen), now(), row.id);
 
   const timing = (await readJson<Timing>(timingFile(row.id))) ?? {};
@@ -580,7 +670,7 @@ export async function changeVoice(userId: number, audioBookId: number, part: str
   }
   if (row.status !== 'revoicing') update(row.id, { status: 'revoicing', detail: 'Changing a voice', progress: 0, error: null });
   void drain();
-  return true;
+  return { bookId: audioBookId };
 }
 
 async function runRevoice(id: number): Promise<void> {

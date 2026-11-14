@@ -76,7 +76,8 @@ To install it on a phone: Safari → Share → **Add to Home Screen** (iPhone), 
   - You get 19 blended voices and 11 accents.
   - Characters can have their own voices, and texts are read by the person who sent them.
   - Each profile can set preferred, avoided and custom-mixed voices.
-  - A monthly spend cap applies.
+  - Each person can spend $10 a month on Claude by default; an admin can raise that per person in **Settings → Users**. A server-wide monthly cap applies on top.
+  - Changing a voice in an audiobook someone else also has gives you your own copy; theirs stays as it is.
 
 ### People
 - Each person has their own library and progress, synced across devices. Files are stored only once.

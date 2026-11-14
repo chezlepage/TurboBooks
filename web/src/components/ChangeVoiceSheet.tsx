@@ -44,7 +44,9 @@ export function ChangeVoiceSheet({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await api.changeBookVoice(bookId, part, choice, position);
+      const res = await api.changeBookVoice(bookId, part, choice, position);
+      // Someone else has this audiobook too: you now have your own copy, same place in it.
+      if (res.bookId && res.bookId !== bookId) await player.open(res.bookId, { autoplay: player.playing, position });
       player.watchVoiceChange();
       toast('Re-recording with the new voice, starting with this chapter');
       onClose();
@@ -101,7 +103,7 @@ export function ChangeVoiceSheet({ onClose }: { onClose: () => void }) {
         {editing && (
           <p className="muted small">
             {editing === 'narrator' ? 'The whole book' : 'Every chapter this voice is in'} gets re-recorded on your server, starting where you
-            are. You can keep listening: it switches over as each chapter is ready. This changes it for everyone who has this audiobook.
+            are. You can keep listening: it switches over as each chapter is ready. Anyone else who has this audiobook keeps theirs as it is.
           </p>
         )}
         {error && <p className="error small">{error}</p>}

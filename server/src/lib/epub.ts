@@ -1,7 +1,7 @@
 /** Reads title/author/description/cover from an EPUB's package (OPF) file. */
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8 } from 'fflate';
+import { readBookFile, unzipLimited } from './zipSafe.js';
 
 export interface EpubMeta {
   title?: string;
@@ -49,14 +49,14 @@ export function displayName(name: string): string {
 const IMAGE_EXT: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
 
 export async function readEpubMeta(file: string): Promise<EpubMeta> {
-  const buf = new Uint8Array(await fs.readFile(file));
-  const containerZip = unzipSync(buf, { filter: (f) => f.name === 'META-INF/container.xml' });
+  const buf = await readBookFile(file);
+  const containerZip = unzipLimited(buf, (f) => f.name === 'META-INF/container.xml');
   const container = containerZip['META-INF/container.xml'];
   if (!container) throw new Error('not an EPUB (no META-INF/container.xml)');
   const opfPath = strFromU8(container).match(/full-path\s*=\s*"([^"]+)"/)?.[1];
   if (!opfPath) throw new Error('EPUB container has no package file');
 
-  const opfZip = unzipSync(buf, { filter: (f) => f.name === opfPath });
+  const opfZip = unzipLimited(buf, (f) => f.name === opfPath);
   const opfBytes = opfZip[opfPath];
   if (!opfBytes) throw new Error('EPUB package file missing');
   const opf = strFromU8(opfBytes);
@@ -78,7 +78,7 @@ export async function readEpubMeta(file: string): Promise<EpubMeta> {
     items.find((i) => isImage(i) && /cover/i.test(`${i.id} ${i.href}`));
   if (coverItem?.href) {
     const href = path.posix.normalize(path.posix.join(path.posix.dirname(opfPath), decodeURIComponent(coverItem.href)));
-    const coverZip = unzipSync(buf, { filter: (f) => f.name === href });
+    const coverZip = unzipLimited(buf, (f) => f.name === href);
     const data = coverZip[href];
     if (data && data.length > 0) meta.cover = { data, ext: IMAGE_EXT[coverItem['media-type']] ?? path.extname(href) };
   }

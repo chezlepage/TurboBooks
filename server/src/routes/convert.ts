@@ -15,6 +15,7 @@ import {
   estimateFor,
   heardVoices,
   monthSpend,
+  userBudget,
   setVoiceMap,
   startConversion,
 } from '../lib/convert/jobs.js';
@@ -82,14 +83,15 @@ const toConversion = (r: ConversionRow) => ({
 export async function convertRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireUser);
 
-  app.get('/api/convert/status', async () => {
+  app.get('/api/convert/status', async (request) => {
     if (!conversionsEnabled()) return { enabled: false, reason: 'No Claude API key is set on the server' };
     try {
       await listVoices();
     } catch {
       return { enabled: false, reason: 'The voice engine (Kokoro) is not reachable' };
     }
-    return { enabled: true, monthSpend: Math.round(monthSpend() * 100) / 100, budget: config.convertMonthlyBudgetUsd };
+    const userId = request.user!.id;
+    return { enabled: true, monthSpend: Math.round(monthSpend(userId) * 100) / 100, budget: userBudget(userId) };
   });
 
   app.get('/api/convert/voices', async (request, reply) => {
@@ -156,7 +158,9 @@ export async function convertRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.post('/api/books/:id/convert/estimate', async (request, reply) => {
+  // Reading a whole ebook is real work: keep it to what a person browsing books would ask for.
+  app.post('/api/books/:id/convert/estimate', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
+    if (!conversionsEnabled()) return reply.code(400).send({ error: 'Audiobook conversion is not set up on this server' });
     const { id } = idParam.parse(request.params);
     const body = z.object({ multiVoice: z.boolean().default(false) }).parse(request.body ?? {});
     const elig = checkEligible(request.user!.id, id);
@@ -227,9 +231,10 @@ export async function convertRoutes(app: FastifyInstance) {
     const body = changeBody.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: 'Pick a voice' });
     try {
-      const ok = await changeVoice(request.user!.id, id, body.data.part, body.data.voice, body.data.position);
-      if (!ok) return reply.code(404).send({ error: 'Voices can only be changed on audiobooks made here' });
-      return { ok: true };
+      const changed = await changeVoice(request.user!.id, id, body.data.part, body.data.voice, body.data.position);
+      if (!changed) return reply.code(404).send({ error: 'Voices can only be changed on audiobooks made here' });
+      // bookId differs from :id when the listener got their own copy to change.
+      return { ok: true, bookId: changed.bookId };
     } catch (err) {
       const e = err as Error & { statusCode?: number };
       return reply.code(e.statusCode ?? 500).send({ error: e.message });

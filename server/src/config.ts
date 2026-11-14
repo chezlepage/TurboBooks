@@ -59,6 +59,8 @@ export const config = {
   anthropicApiKey: env.ANTHROPIC_API_KEY ?? '',
   kokoroUrl: (env.KOKORO_URL ?? 'http://kokoro:8880').replace(/\/+$/, ''),
   convertMonthlyBudgetUsd: Number(env.CONVERT_MONTHLY_BUDGET_USD ?? 100),
+  /** Each person's monthly Claude budget unless an admin sets theirs in Settings → Users. */
+  convertUserBudgetUsd: Number(env.CONVERT_USER_BUDGET_USD ?? 10),
   /** Use the Batch API (half price, usually done within the hour). Off = direct calls, full price, faster. */
   convertUseBatch: (env.CONVERT_USE_BATCH ?? 'true') !== 'false',
   /** Read along: Whisper speech-to-text (whisper-asr-webservice) for syncing ebook text to audiobooks. Empty = off. */
