@@ -75,7 +75,7 @@ mkdir -p data && sudo chown 1000:1000 data
 
 1. Zero Trust → **Access → Applications** → **Add an application** → *Self-hosted*.
 2. Domain: `books.yourdomain.com`. Session duration: **1 month** (so you aren't re-verifying at bedtime).
-3. Policy: *Allow*, Include → **Emails** → your email and your wife's email.
+3. Policy: *Allow*, Include → **Emails** → your email and the other readers' emails.
 4. Login method: *One-time PIN* (an emailed code) works out of the box. Google login is also an option.
 
 The app's own login still applies behind this, so there are two locks.
@@ -89,7 +89,7 @@ docker compose logs -f turbobooks
 
 Open `https://books.yourdomain.com`, pass the Cloudflare email check, and sign in with your admin account.
 
-Then **Settings → Users → Add user** to create your wife's account. You can now delete `ADMIN_PASSWORD` from `.env`.
+Then **Settings → Users → Add user** to create accounts for everyone else. You can now delete `ADMIN_PASSWORD` from `.env`.
 
 ## 8. Put it on your phones
 

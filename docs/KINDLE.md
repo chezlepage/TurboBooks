@@ -9,7 +9,7 @@ You set up the sending email account once, for the whole server. Each reader the
 
 ## 1. Pick an email account to send from
 
-The easiest choice is a **Gmail account made just for TurboBooks**, e.g. `ourturbobooks@gmail.com`. Any account works, but keep in mind:
+The easiest choice is a **Gmail account made just for TurboBooks**, e.g. `yourbooks@gmail.com`. Any account works, but keep in mind:
 
 - Readers will paste this address into their Amazon settings. A dedicated account keeps your personal address out of it.
 - If you change it later, everyone has to approve the new address in Amazon again.
@@ -30,10 +30,10 @@ On the server, open `.env` (next to `docker-compose.yml`) and add:
 ```sh
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=ourturbobooks@gmail.com
+SMTP_USER=yourbooks@gmail.com
 SMTP_PASS=abcdefghijklmnop        # the app password, spaces removed
 # Optional: shown as the sender name. Defaults to SMTP_USER.
-# SMTP_FROM=TurboBooks <ourturbobooks@gmail.com>
+# SMTP_FROM=TurboBooks <yourbooks@gmail.com>
 ```
 
 Then restart:
