@@ -1,6 +1,6 @@
 # TurboBooks
 
-A self-hosted audiobook player, ebook reader and comic reader, built for reading in bed. Each person gets their own account, shelf and progress, synced across phone, tablet and computer. Free public-domain books are one tap away. For anything else, there's **Requests**: search for a book, ask for it, and it lands on your shelf when it's ready. This runs through the bundled Shelfarr, Prowlarr and qBittorrent, which you set up once ([docs/REQUESTS.md](docs/REQUESTS.md)).
+A self-hosted audiobook player, ebook reader and comic reader, built for reading in bed. Each person gets their own account, shelf and progress, synced across phone, tablet and computer. Free public-domain books are one tap away. For anything else, there's **Requests**: search for a book, ask for it, and it lands on your shelf when it's ready. This runs through the bundled Shelfarr, Prowlarr and qBittorrent, which an admin sets up once from **Settings → Requests** ([docs/REQUESTS.md](docs/REQUESTS.md)).
 
 It runs in Docker on a home server and installs on phones as an app (PWA).
 
@@ -47,7 +47,7 @@ Open `http://<server-ip>:8080` and sign in with the admin account.
 
 After the first start, add other people under **Settings → Users** (there is no public sign-up). You can then remove `ADMIN_PASSWORD` from `.env`.
 
-The same command also starts Shelfarr, Prowlarr and qBittorrent for the **Request** tab. They sit idle until you set them up, about 10 minutes in their own web pages: [docs/REQUESTS.md](docs/REQUESTS.md).
+The same command also starts Shelfarr, Prowlarr and qBittorrent for the **Request** tab. They sit idle until an admin sets them up, about 10 minutes from **Settings → Requests** ([docs/REQUESTS.md](docs/REQUESTS.md)). Only TurboBooks admins can open them, and their ports are never opened on your network.
 
 To install it on a phone: Safari → Share → **Add to Home Screen** (iPhone), or Chrome → ⋮ → **Install app** (Android).
 
@@ -71,7 +71,7 @@ To install it on a phone: Safari → Share → **Add to Home Screen** (iPhone), 
   - Audiobooks come from LibriVox.
   - Ebooks come from Project Gutenberg.
   - Comics come from public-domain collections.
-- **Requests**: search for a book and request it. Shelfarr, Prowlarr and qBittorrent come bundled; you add the indexers and accounts ([docs/REQUESTS.md](docs/REQUESTS.md)). Delivered books land on the shelf of the person who asked.
+- **Requests**: search for a book and request it. Shelfarr, Prowlarr and qBittorrent come bundled; an admin adds the indexers from **Settings → Requests** ([docs/REQUESTS.md](docs/REQUESTS.md)). Delivered books land on the shelf of the person who asked.
 - **Make an audiobook** (optional): turn an ebook into an audiobook. Claude prepares the text and Kokoro TTS reads it.
   - You get 19 blended voices and 11 accents.
   - Characters can have their own voices, and texts are read by the person who sent them.
@@ -91,7 +91,7 @@ Each one stays off until you fill in its settings in `.env`. `.env.example` list
 
 | Feature | Settings | Needs |
 | --- | --- | --- |
-| Requests | `SHELFARR_TOKEN` | Bundled Shelfarr, Prowlarr and qBittorrent, set up once ([guide](docs/REQUESTS.md)) |
+| Requests | Nothing: set up in **Settings → Requests** | Bundled Shelfarr, Prowlarr and qBittorrent ([guide](docs/REQUESTS.md)) |
 | Send to Kindle / PocketBook | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | An email account to send from, e.g. a Gmail app password ([guide](docs/KINDLE.md)) |
 | Make an audiobook | `ANTHROPIC_API_KEY`, `KOKORO_URL` | A Claude API key and an NVIDIA GPU for Kokoro |
 | Read along | `WHISPER_URL` | An NVIDIA GPU for Whisper |

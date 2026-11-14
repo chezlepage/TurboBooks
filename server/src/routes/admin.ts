@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { db } from '../db.js';
+import { config } from '../config.js';
+import { db, setSetting } from '../db.js';
+import { availableApps } from '../lib/apps.js';
+import { checkToken, shelfarrEnabled } from '../lib/shelfarr.js';
 import { createUser, requireAdmin, requireUser, revokeSessions, setPassword } from '../lib/auth.js';
 import { isScanning, scanLibrary } from '../lib/scanner.js';
 
@@ -21,9 +24,43 @@ const resetBody = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters').max(256),
 });
 
+const tokenBody = z.object({ token: z.string().trim().max(512) });
+
 export async function adminRoutes(app: FastifyInstance) {
   app.addHook('preHandler', requireUser);
   app.addHook('preHandler', requireAdmin);
+
+  /** What the Settings → Requests card shows: the app pages, and whether TurboBooks reaches Shelfarr. */
+  app.get('/api/admin/requests', async () => ({
+    apps: availableApps(),
+    shelfarr: {
+      configured: Boolean(config.shelfarrUrl),
+      connected: shelfarrEnabled(),
+      tokenInEnv: Boolean(config.shelfarrToken),
+    },
+  }));
+
+  /** Save (or with an empty token, remove) the Shelfarr API token, after checking that it works. */
+  app.put('/api/admin/requests/token', async (request, reply) => {
+    if (config.shelfarrToken) return reply.code(409).send({ error: 'The token is set in .env; change it there.' });
+    const { token } = tokenBody.parse(request.body);
+    if (!token) {
+      setSetting('shelfarr_token', null);
+      return { connected: false };
+    }
+    if (!/^shf_[\w-]{16,}$/.test(token)) {
+      return reply.code(400).send({
+        error: "That doesn't look like a Shelfarr token. It starts with shf_ and is shown once, right after you create it.",
+      });
+    }
+    const check = await checkToken(token);
+    if (check === 'bad-token') {
+      return reply.code(400).send({ error: "Shelfarr didn't accept that token. Create a new one and paste it right away." });
+    }
+    if (check === 'unreachable') return reply.code(502).send({ error: "Can't reach Shelfarr right now. Is it running?" });
+    setSetting('shelfarr_token', token);
+    return { connected: true };
+  });
 
   app.get('/api/admin/users', async () => ({
     users: db

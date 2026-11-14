@@ -246,7 +246,29 @@ const migrations: string[] = [
     deleted_at INTEGER
   );
   `,
+  // Server-wide settings an admin changes in the app (e.g. the Shelfarr token), instead of in .env.
+  `
+  CREATE TABLE app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
+
+export function getSetting(key: string): string | null {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string | null): void {
+  if (value === null) db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
+  else
+    db.prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ).run(key, value, Date.now());
+}
 
 const current = db.pragma('user_version', { simple: true }) as number;
 for (let v = current; v < migrations.length; v++) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api, EREADER_NAMES } from '../api';
-import type { AdminUser, KindleSettings } from '../api';
+import type { AdminUser, KindleSettings, RequestsSetup } from '../api';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { ChevronLeftIcon } from '../components/Icons';
@@ -252,6 +252,8 @@ function AdminPanel() {
         </form>
       </div>
 
+      <RequestsCard />
+
       <div className="card">
         <h2>Library</h2>
         <p className="muted small">
@@ -263,5 +265,117 @@ function AdminPanel() {
         {scanMsg && <p className="muted small">{scanMsg}</p>}
       </div>
     </>
+  );
+}
+
+const APP_BLURBS: Record<string, string> = {
+  prowlarr: '1. Add the indexers to search',
+  shelfarr: '2. Sign up, then follow its setup wizard',
+  qbittorrent: 'Downloads in progress',
+};
+
+/** Set up the bundled Shelfarr / Prowlarr / qBittorrent and connect TurboBooks to Shelfarr. */
+function RequestsCard() {
+  const [setup, setSetup] = useState<RequestsSetup | null>(null);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = () =>
+    api
+      .requestsSetup()
+      .then(setSetup)
+      .catch(() => undefined);
+  useEffect(() => {
+    void load();
+  }, []);
+
+  if (!setup || (!setup.apps.length && !setup.shelfarr.configured)) return null;
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.setShelfarrToken(token.trim());
+      setToken('');
+      void load();
+    } catch (err) {
+      setMsg({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    if (!confirm('Disconnect from Shelfarr? The Request tab stops working until you add a token again.')) return;
+    await api.setShelfarrToken('').catch((err: Error) => setMsg({ ok: false, text: err.message }));
+    setMsg(null);
+    void load();
+  };
+
+  const { connected, tokenInEnv } = setup.shelfarr;
+  return (
+    <div className="card">
+      <h2>Requests</h2>
+      {setup.apps.length > 0 && (
+        <>
+          <p className="muted small">
+            These apps find and download requested books. Only admins can open them.
+          </p>
+          <ul className="user-list">
+            {setup.apps.map((a) => (
+              <li key={a.id}>
+                <span>
+                  {a.name}
+                  <span className="muted small"> · {APP_BLURBS[a.id]}</span>
+                </span>
+                <a className="btn btn-small btn-ghost" href={a.path} target="_blank" rel="noopener">
+                  Open
+                </a>
+              </li>
+            ))}
+          </ul>
+          {!connected && (
+            <p className="muted small">
+              In Shelfarr's wizard, Prowlarr is at <code>http://prowlarr:9696/apps/prowlarr</code> (its API key is under
+              Prowlarr → Settings → General) and qBittorrent at <code>http://qbittorrent:8090</code> with user{' '}
+              <code>admin</code> and any password. Keep the suggested folders.
+            </p>
+          )}
+        </>
+      )}
+      {connected ? (
+        <div className="stack">
+          <p className="success">TurboBooks is connected to Shelfarr. The Request tab works.</p>
+          {!tokenInEnv && (
+            <button className="btn btn-small btn-ghost" onClick={disconnect}>
+              Disconnect
+            </button>
+          )}
+        </div>
+      ) : (
+        <form onSubmit={save} className="stack">
+          <h3>Connect TurboBooks</h3>
+          <p className="muted small">
+            In Shelfarr, open your profile → <strong>API tokens</strong>, tick all three boxes and create a token. Paste
+            it here right away; Shelfarr shows it only once.
+          </p>
+          <input
+            placeholder="shf_…"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            required
+          />
+          <button className="btn" disabled={busy}>
+            {busy ? 'Checking…' : 'Connect'}
+          </button>
+        </form>
+      )}
+      {msg && <p className={msg.ok ? 'success' : 'error'}>{msg.text}</p>}
+    </div>
   );
 }

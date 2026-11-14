@@ -8,7 +8,8 @@
 # then `docker compose up -d --build` as usual.
 #
 # This file does not start Shelfarr/Prowlarr/qBittorrent (docker-compose.yml does), since a host
-# like this usually runs its own. Point SHELFARR_URL and SHELFARR_TOKEN in .env at yours.
+# like this usually runs its own. Point SHELFARR_URL in .env at yours, then paste its token in
+# Settings > Requests (or set SHELFARR_TOKEN).
 services:
   turbobooks:
     build: .

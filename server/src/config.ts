@@ -37,6 +37,15 @@ export const config = {
   /** Shelfarr base URL and API token (scopes: search, requests read + write). Enables the Request tab. */
   shelfarrUrl: (env.SHELFARR_URL ?? '').replace(/\/+$/, ''),
   shelfarrToken: env.SHELFARR_TOKEN ?? '',
+  /**
+   * Admin web pages of the bundled request apps, shown to TurboBooks admins at /apps/<name>/.
+   * Unset = not offered. docker-compose.yml sets these; their ports are never published.
+   */
+  appUpstreams: {
+    shelfarr: (env.APP_SHELFARR_URL ?? '').replace(/\/+$/, ''),
+    prowlarr: (env.APP_PROWLARR_URL ?? '').replace(/\/+$/, ''),
+    qbittorrent: (env.APP_QBITTORRENT_URL ?? '').replace(/\/+$/, ''),
+  },
   /** Minutes between automatic library rescans. 0 disables. */
   scanIntervalMinutes: Number(env.SCAN_INTERVAL_MINUTES ?? 30),
   /** Outgoing email, used for Send to Kindle. Unset SMTP_HOST disables the feature. */

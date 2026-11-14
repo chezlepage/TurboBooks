@@ -1,5 +1,9 @@
 /** Thin client for Shelfarr's REST API (/api/v1). The token never leaves the server. */
 import { config } from '../config.js';
+import { getSetting } from '../db.js';
+
+/** The token from .env wins; otherwise the one an admin pasted in Settings. */
+export const shelfarrToken = () => config.shelfarrToken || getSetting('shelfarr_token') || '';
 
 export class ShelfarrError extends Error {
   constructor(
@@ -12,7 +16,7 @@ export class ShelfarrError extends Error {
   }
 }
 
-export const shelfarrEnabled = () => Boolean(config.shelfarrUrl && config.shelfarrToken);
+export const shelfarrEnabled = () => Boolean(config.shelfarrUrl && shelfarrToken());
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (!shelfarrEnabled()) throw new ShelfarrError('Requests are not set up on this server', 503);
@@ -21,7 +25,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     res = await fetch(`${config.shelfarrUrl}/api/v1${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${config.shelfarrToken}`,
+        Authorization: `Bearer ${shelfarrToken()}`,
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
@@ -37,6 +41,21 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     throw new ShelfarrError(msg, res.status === 401 || res.status === 403 ? 502 : res.status, res.status);
   }
   return data as T;
+}
+
+/** Checks a token before saving it: 'ok', 'bad-token', or 'unreachable'. */
+export async function checkToken(token: string): Promise<'ok' | 'bad-token' | 'unreachable'> {
+  if (!config.shelfarrUrl) return 'unreachable';
+  try {
+    const res = await fetch(`${config.shelfarrUrl}/api/v1/requests`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.status === 401 || res.status === 403) return 'bad-token';
+    return res.ok ? 'ok' : 'unreachable';
+  } catch {
+    return 'unreachable';
+  }
 }
 
 export interface MetaResult {

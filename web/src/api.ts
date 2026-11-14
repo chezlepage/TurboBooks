@@ -510,7 +510,15 @@ export const api = {
   resetUserPassword: (id: number, password: string) => request('POST', `/api/admin/users/${id}/password`, { password }),
   deleteUser: (id: number) => request('DELETE', `/api/admin/users/${id}`),
   scan: () => request<{ result: { added: number; updated: number; removed: number; failed: number } }>('POST', '/api/admin/scan', {}),
+  requestsSetup: () => request<RequestsSetup>('GET', '/api/admin/requests'),
+  setShelfarrToken: (token: string) => request<{ connected: boolean }>('PUT', '/api/admin/requests/token', { token }),
 };
+
+/** Settings → Requests: the bundled apps' admin pages, and whether TurboBooks is connected to Shelfarr. */
+export interface RequestsSetup {
+  apps: { id: 'shelfarr' | 'prowlarr' | 'qbittorrent'; name: string; path: string }[];
+  shelfarr: { configured: boolean; connected: boolean; tokenInEnv: boolean };
+}
 
 export const coverUrl = (book: { id: number; hasCover: boolean }) => (book.hasCover ? `/api/books/${book.id}/cover` : null);
 /** `version` changes when the file does (e.g. re-recorded with a new voice), so a cached copy is never reused. */
