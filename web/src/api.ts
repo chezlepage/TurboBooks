@@ -529,6 +529,7 @@ export const coverUrl = (book: { id: number; hasCover: boolean }) => (book.hasCo
 /** `version` changes when the file does (e.g. re-recorded with a new voice), so a cached copy is never reused. */
 export const streamUrl = (trackId: number, version?: number) => `/api/tracks/${trackId}/stream${version ? `?v=${version}` : ''}`;
 export const ebookFileUrl = (bookId: number) => `/api/books/${bookId}/file`;
+export const ebookDownloadUrl = (bookId: number) => `/api/books/${bookId}/file?download=1`;
 
 /** Fire-and-forget progress save that survives the page being closed. */
 export function beaconProgress(id: number, position: number, locator?: string): void {

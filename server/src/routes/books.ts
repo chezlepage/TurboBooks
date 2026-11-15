@@ -151,13 +151,23 @@ export async function bookRoutes(app: FastifyInstance) {
     return sendFileWithRange(request, reply, row.cover_path, type);
   });
 
-  /** The EPUB file itself, for the in-browser reader. */
+  /** The EPUB file itself, for the in-browser reader. `?download=1` serves it as an attachment. */
   app.get('/api/books/:id/file', async (request, reply) => {
     const { id } = idParam.parse(request.params);
     if (!canAccessBook(request.user!, id)) return reply.code(404).send({ error: 'Ebook not found' });
-    const row = db.prepare("SELECT path FROM books WHERE id = ? AND kind = 'ebook'").get(id) as { path: string } | undefined;
+    const row = db.prepare("SELECT title, path FROM books WHERE id = ? AND kind = 'ebook'").get(id) as
+      | { title: string; path: string }
+      | undefined;
     if (!row) return reply.code(404).send({ error: 'Ebook not found' });
     const type = /\.cbz$/i.test(row.path) ? 'application/vnd.comicbook+zip' : /\.cbr$/i.test(row.path) ? 'application/vnd.comicbook-rar' : 'application/epub+zip';
+    const q = request.query as { download?: string } | undefined;
+    if (q?.download) {
+      const ext = path.extname(row.path).toLowerCase() || '.epub';
+      const base = row.title.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'book';
+      const safeAscii = base.replace(/[^\x20-\x7e]/g, '_') + ext;
+      const utf8 = encodeURIComponent(base + ext);
+      reply.header('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${utf8}`);
+    }
     return sendFileWithRange(request, reply, row.path, type);
   });
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, coverUrl, EREADER_NAMES, formatDuration, formatTime, isComic } from '../api';
+import { api, coverUrl, ebookDownloadUrl, EREADER_NAMES, formatDuration, formatTime, isComic } from '../api';
 import type { BookDetail, KindleSettings } from '../api';
 import { useAuth } from '../auth';
 import { Cover } from '../components/Cover';
@@ -222,6 +222,12 @@ export function BookPage() {
               <button className="btn btn-lg btn-kindle" onClick={sendToKindle} disabled={sendingToKindle}>
                 {sendingToKindle ? 'Sending…' : kindle.device ? `Send to ${ereaderName}` : 'Send to e-reader'}
               </button>
+            )}
+
+            {isEbook && (
+              <a className="btn btn-lg" href={ebookDownloadUrl(book.id)} download>
+                Download
+              </a>
             )}
 
             {hasMenu && (
