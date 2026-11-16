@@ -382,9 +382,15 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   });
   if (res.status === 401 && !url.startsWith('/api/auth/login')) onUnauthorized();
   const data = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null;
-  if (!res.ok) throw new ApiError(data?.error ?? `Request failed (${res.status})`, res.status);
+  if (!res.ok) throw new ApiError(data?.error ?? fallbackError(res.status), res.status);
   return data as T;
 }
+
+/** For errors with no message from TurboBooks itself, e.g. a gateway page from the proxy in front of it. */
+const fallbackError = (status: number) =>
+  [502, 503, 504, 520, 521, 522, 523, 524].includes(status)
+    ? `Can't reach the TurboBooks server right now, try again in a bit (${status})`
+    : `Request failed (${status})`;
 
 export const api = {
   me: () => request<{ user: User }>('GET', '/api/auth/me'),

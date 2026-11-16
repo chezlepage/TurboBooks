@@ -77,7 +77,7 @@ export async function discoverRoutes(app: FastifyInstance) {
         });
       } catch (err) {
         request.log.warn(err, `${catalog.name} search failed`);
-        return reply.code(502).send({ error: `${catalog.name} is not responding, try again in a bit` });
+        return reply.code(503).send({ error: `${catalog.name} is not responding, try again in a bit` });
       }
     },
   );

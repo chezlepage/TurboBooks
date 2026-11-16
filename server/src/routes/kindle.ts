@@ -127,7 +127,7 @@ export async function kindleRoutes(app: FastifyInstance) {
       } catch (err) {
         request.log.error({ err }, 'send to kindle failed');
         return reply
-          .code(502)
+          .code(503)
           .send({ error: "The server couldn't send the email. Ask whoever runs TurboBooks to check the email settings." });
       }
       return { ok: true, to, device: deviceOf(to) };

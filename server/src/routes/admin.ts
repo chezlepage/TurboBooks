@@ -59,7 +59,7 @@ export async function adminRoutes(app: FastifyInstance) {
     if (check === 'bad-token') {
       return reply.code(400).send({ error: "Shelfarr didn't accept that token. Create a new one and paste it right away." });
     }
-    if (check === 'unreachable') return reply.code(502).send({ error: "Can't reach Shelfarr right now. Is it running?" });
+    if (check === 'unreachable') return reply.code(503).send({ error: "Can't reach Shelfarr right now. Is it running?" });
     setSetting('shelfarr_token', token);
     return { connected: true };
   });
